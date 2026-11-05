@@ -39,7 +39,7 @@ Host 半边注册两个 tool，使用**独立的临时 headless Chrome**（不�
 |---|---|
 | `design_verify_ui` | 用 `connection.authenticatedUrl()` 取得带鉴权的 Web GUI 地址，打开 `?panel=design-studio`，等待面板渲染后截图并审计，返回 `issues[]` 与 PASS/FAIL。支持 `device`、`theme`（current/dark/light）、`full_page`、`include_shell`，以及 `steps` 交互脚本（click/type/wait/screenshot），可验证“生成设计、打开弹窗、应用 tokens”等真实交互。 |
 | `design_screenshot_html` | 把自包含 HTML（内联字符串或本地 `.html` 文件）在 headless Chrome 中渲染并截图，用来直接查看生成的设计稿。 |
-| `design_projects` | Agent ↔ 面板的项目文件桥：`write` 把项目（名称/需求/模板/风格/tokens/HTML/批注）写入工作区 `.design-studio/projects/*.json`，`list` / `read` 查看已发布项目；用户在面板「导入」即可打开。纯文件交换，不暴露 HTTP 服务。 |
+| `design_projects` | Agent ↔ 面板的项目桥：`write` 把项目（名称/需求/模板/风格/tokens/HTML/批注）发布到共享 profile 库；面板「已发布设计」自动列出并一键打开，无需文件选择器。`list` / `read` 查看已发布项目；`scope: "workspace"` 可改写到工作区目录。Host 同时注册**只读**路由 `/design-studio/projects` 供面板读取（loopback、no-store、同源/Sec-Fetch-Site 校验、2MB 上限、无 CORS）。 |
 
 **审计内容**：三列布局是否成立、横向溢出、控件数量、计算色值与对比度、无标注按钮、
 控制台错误，以及**沙箱 iframe 内设计稿本身**的尺寸/溢出/对比度/标题/图片加载
@@ -109,7 +109,7 @@ Client 侧代码刷新页面即可。
 
 ## Agent ↔ 面板的项目桥
 
-Agent 可以这样把一份设计交给面板：
+Agent 把设计发布到共享库：
 
 ```text
 design_projects({
@@ -125,9 +125,15 @@ design_projects({
 })
 ```
 
-随后在面板项目区点「导入」选择生成的 `.json` 即可加载；反向地，面板「导出」的项目 JSON
-也可以被 Agent 用 `design_projects({ action: "read", file: "..." })` 读取。文件落在
-`<workspace>/.design-studio/projects/`。
+面板项目区的「已发布设计」会自动列出共享库（打开面板时、窗口重新聚焦时、或点「刷新」），
+点击条目即可加载，**不再需要手动选文件**；反向地，面板「导出」的 JSON 也可以被 Agent 用
+`design_projects({ action: "read", file: "..." })` 读取（或发布到库里共享）。
+
+- 共享库默认：`$DSH_HOME/design-studio/projects`（`DSH_HOME` 未设置时为 `~/.dsh/design-studio/projects`），
+  可用环境变量 `DSH_DESIGN_PROJECTS_DIR` 覆盖。
+- 面板通过只读路由 `GET /design-studio/projects`（列表）与 `GET /design-studio/projects/<file>`
+  读取；路由只接受 GET/HEAD、校验同源/`Sec-Fetch-Site`、限制文件大小、拒绝目录外路径、无 CORS 头。
+- 仍保留手动「导入」用于任意第三方 `.json` 文件。
 
 ## 已知限制
 
@@ -136,7 +142,7 @@ design_projects({
 - 每次调整设计 token 都会重新生成并刷新画布文档，拖动滑杆时会有轻微闪烁。
 - 设计稿内容文案由引擎生成（中英文按需求语言），不是通用大模型自由创作；复杂交互原型请把
   「复制交付说明」交给 Agent 继续实现。
-- Agent ↔ 面板采用文件桥（导出/导入 JSON），不是实时双向同步；实时同步需要额外的受鉴权 HTTP/Remote 通道。
+- Agent ↔ 面板的「已发布设计」在面板打开/窗口聚焦/手动刷新时拉取，不是 WebSocket 推送；写入由 Agent 工具（或用户导入文件）完成，路由只读。
 - 视觉核验截取的是 **Web GUI**（浏览器表面），不是 Electron 原生窗口；字体渲染 / 窗口控件
   可能与桌面壳略有差异。原生窗口级截图需要 macOS Computer Use bundle（需系统权限）。
 - 插件管理器中的图标 / 标题属于渲染态，本仓库未提交截图。

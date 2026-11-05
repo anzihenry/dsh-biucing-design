@@ -164,6 +164,11 @@ window.__ModuleLoader__.load({
         'toast.projectImported': 'Project imported',
         'toast.projectImportFailed': 'Could not import that project file',
         'toast.projectExported': 'Project exported',
+        'published.heading': 'Published designs',
+        'published.refresh': 'Refresh',
+        'published.empty': 'No published projects yet. Ask the agent to publish one with design_projects.',
+        'published.error': 'The project library is unavailable right now.',
+        'published.loading': 'Loading…',
         'toast.engineMissing': 'Design engine is unavailable',
         'engine.missing': 'The design engine could not be loaded. Run the build step: node scripts/build-client.mjs.',
       },
@@ -290,6 +295,11 @@ window.__ModuleLoader__.load({
         'toast.projectImported': '项目已导入',
         'toast.projectImportFailed': '无法导入该项目文件',
         'toast.projectExported': '项目已导出',
+        'published.heading': '已发布设计',
+        'published.refresh': '刷新',
+        'published.empty': '还没有已发布的项目。可以让 Agent 用 design_projects 发布一个。',
+        'published.error': '项目库暂时不可用。',
+        'published.loading': '加载中…',
         'toast.engineMissing': '设计引擎不可用',
         'engine.missing': '设计引擎未能加载。请执行构建：node scripts/build-client.mjs。',
       },
@@ -642,6 +652,9 @@ window.__ModuleLoader__.load({
         const toastTimer = useRef(null);
         const canvasRef = useRef(null);
         const importFileRef = useRef(null);
+        const [publishedProjects, setPublishedProjects] = useState([]);
+        const [publishedError, setPublishedError] = useState(null);
+        const [publishedLoading, setPublishedLoading] = useState(false);
         const stateRef = useRef(state);
         stateRef.current = state;
 
@@ -891,6 +904,45 @@ window.__ModuleLoader__.load({
           });
           notify(t('toast.projectImported'));
         }, [notify, t]);
+
+        const refreshPublished = useCallback(async () => {
+          setPublishedLoading(true);
+          try {
+            const response = await fetch('/design-studio/projects', { headers: { accept: 'application/json' }, cache: 'no-store' });
+            if (!response.ok) throw new Error('HTTP ' + response.status);
+            const payload = await response.json();
+            setPublishedProjects(Array.isArray(payload.projects) ? payload.projects : []);
+            setPublishedError(null);
+          } catch (error) {
+            setPublishedProjects([]);
+            setPublishedError(String((error && error.message) || error));
+          } finally {
+            setPublishedLoading(false);
+          }
+        }, []);
+
+        const openPublishedProject = useCallback(async (item) => {
+          if (!item || typeof item.file !== 'string') return;
+          try {
+            const response = await fetch('/design-studio/projects/' + encodeURIComponent(item.file), {
+              headers: { accept: 'application/json' },
+              cache: 'no-store',
+            });
+            if (!response.ok) throw new Error('HTTP ' + response.status);
+            const payload = await response.json();
+            importProjectData(payload);
+          } catch (error) {
+            notify(t('toast.projectImportFailed'));
+          }
+        }, [importProjectData, notify, t]);
+
+        useEffect(() => {
+          refreshPublished();
+          if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return undefined;
+          const onFocus = () => { refreshPublished(); };
+          window.addEventListener('focus', onFocus);
+          return () => window.removeEventListener('focus', onFocus);
+        }, [refreshPublished]);
 
         const handleArtboardClick = (event) => {
           if (!commentMode) return;
@@ -1369,6 +1421,27 @@ window.__ModuleLoader__.load({
                     spellCheck: false,
                     onChange: (event) => patch({ projectName: event.target.value }),
                   }),
+                  h('div', { className: 'dsx-published' },
+                    h('div', { className: 'dsx-published-head' },
+                      h('span', { className: 'dsx-published-title' }, t('published.heading')),
+                      h('button', {
+                        type: 'button',
+                        className: 'dsx-linkbtn',
+                        title: t('published.refresh'),
+                        onClick: refreshPublished,
+                      }, publishedLoading ? t('published.loading') : t('published.refresh'))),
+                    publishedProjects.length
+                      ? h('div', { className: 'dsx-published-list' },
+                        publishedProjects.slice(0, 8).map((item) => h('button', {
+                          key: item.file,
+                          type: 'button',
+                          className: 'dsx-published-item',
+                          title: item.file,
+                          onClick: () => openPublishedProject(item),
+                        },
+                        h('span', { className: 'dsx-published-name' }, item.projectName || item.file),
+                        h('span', { className: 'dsx-published-meta' }, Math.max(1, Math.round((Number(item.bytes) || 0) / 1024)) + ' KB'))))
+                      : h('div', { className: 'dsx-empty-hint' }, publishedError ? t('published.error') : t('published.empty'))),
                   h('textarea', {
                     className: 'dsx-textarea',
                     value: state.draftBrief,
@@ -1914,6 +1987,14 @@ window.__ModuleLoader__.load({
       '.dsx-project-input{width:100%;height:26px;}',
       '.dsx-project-select{width:100%;height:26px;}',
       '.dsx-project-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}',
+      '.dsx-published{display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--dsw-alias-border-l1);padding-top:8px;}',
+      '.dsx-published-head{display:flex;align-items:center;justify-content:space-between;gap:8px;}',
+      '.dsx-published-title{font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--dsw-alias-label-secondary);font-weight:600;}',
+      '.dsx-published-list{display:flex;flex-direction:column;gap:2px;}',
+      '.dsx-published-item{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;border:1px solid var(--dsw-alias-border-l1);background:transparent;color:var(--dsw-alias-label-secondary);border-radius:6px;padding:5px 7px;font:inherit;font-size:11.5px;cursor:pointer;text-align:left;}',
+      '.dsx-published-item:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l2);}',
+      '.dsx-published-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
+      '.dsx-published-meta{flex:0 0 auto;font-size:10px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;}',
       '.dsx-file-input{display:none;}',
       '.dsx-textarea{width:100%;min-height:92px;resize:vertical;padding:9px 10px;border-radius:8px;',
       'border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);',

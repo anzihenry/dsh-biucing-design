@@ -23,7 +23,7 @@
  */
 import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { isAbsolute, join, relative, resolve as resolvePath, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { AUDIT_EXPRESSION, DESIGN_AUDIT_EXPRESSION } from './audit.js'
@@ -1002,6 +1002,125 @@ export function designScreenshotHtmlTool(ctx) {
  * design_projects — agent ↔ panel project file bridge
  * ------------------------------------------------------------------------- */
 
+const PROJECT_ROUTE = '/design-studio/projects'
+const MAX_PROJECT_BYTES = 2 * 1024 * 1024
+
+/** Shared profile-level project library the panel lists automatically. */
+export function profileProjectsDirectory(env = process.env) {
+  const override = env.DSH_DESIGN_PROJECTS_DIR
+  if (typeof override === 'string' && override.trim()) return override.trim()
+  const home = typeof env.DSH_HOME === 'string' && env.DSH_HOME.trim() ? env.DSH_HOME.trim() : join(homedir(), '.dsh')
+  return join(home, 'design-studio', 'projects')
+}
+
+/** List project JSON files in one directory (shared by the host tool and the route). */
+async function listProjectFiles(directory) {
+  let names = []
+  try {
+    names = await readdir(directory)
+  } catch (error) {
+    names = []
+  }
+  const projects = []
+  for (const name of names) {
+    if (!name.toLowerCase().endsWith('.json')) continue
+    const filePath = join(directory, name)
+    try {
+      const info = await stat(filePath)
+      if (!info.isFile()) continue
+      let projectName = name
+      try {
+        const parsed = JSON.parse(await readFile(filePath, 'utf8'))
+        const payload = parsed && parsed.project ? parsed.project : parsed
+        if (payload && typeof payload.projectName === 'string' && payload.projectName) projectName = payload.projectName
+      } catch (error) {
+        /* keep the file name */
+      }
+      projects.push({ file: name, path: filePath, projectName, bytes: info.size, updatedAt: info.mtimeMs })
+    } catch (error) {
+      /* skip unreadable entries */
+    }
+  }
+  projects.sort((a, b) => b.updatedAt - a.updatedAt)
+  return projects
+}
+
+function projectJsonResponse(value, status = 200) {
+  return new Response(JSON.stringify(value, null, 2), {
+    status,
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'no-store',
+      'x-content-type-options': 'nosniff',
+    },
+  })
+}
+
+/**
+ * The read-only route behind the panel's "Published designs" list.
+ * GET /design-studio/projects          -> { projects: [{ file, projectName, bytes, updatedAt }] }
+ * GET /design-studio/projects/<file>   -> the project JSON
+ * It never writes, never serves paths outside the library, and caps file size.
+ */
+export function createProjectsResource() {
+  return async (request) => {
+    const method = String(request.method || 'GET').toUpperCase()
+    if (method !== 'GET' && method !== 'HEAD') {
+      return new Response('Method not allowed', { status: 405, headers: { allow: 'GET, HEAD' } })
+    }
+    const requestUrl = new URL(request.url)
+    // A server-side Request carries the client's authority in the Host header,
+    // not in the placeholder request URL, so compare against Host.
+    const requestHost = request.headers.get('host') || requestUrl.host
+    const fetchSite = request.headers.get('sec-fetch-site')
+    if (fetchSite && fetchSite !== 'same-origin' && fetchSite !== 'none') {
+      return new Response('Forbidden', { status: 403 })
+    }
+    const origin = request.headers.get('origin')
+    if (origin) {
+      try {
+        if (new URL(origin).host !== requestHost) return new Response('Forbidden', { status: 403 })
+      } catch (error) {
+        return new Response('Forbidden', { status: 403 })
+      }
+    }
+    let pathname = ''
+    try {
+      pathname = decodeURIComponent(requestUrl.pathname)
+    } catch (error) {
+      return new Response('Bad request', { status: 400 })
+    }
+    const directory = profileProjectsDirectory()
+    if (pathname === PROJECT_ROUTE || pathname === PROJECT_ROUTE + '/') {
+      const projects = await listProjectFiles(directory)
+      return projectJsonResponse({
+        projects: projects.map((entry) => ({ file: entry.file, projectName: entry.projectName, bytes: entry.bytes, updatedAt: entry.updatedAt })),
+      })
+    }
+    if (!pathname.startsWith(PROJECT_ROUTE + '/')) return new Response('Not found', { status: 404 })
+    const file = pathname.slice(PROJECT_ROUTE.length + 1)
+    if (!/^[a-zA-Z0-9._\-\u3400-\u9fff]+\.json$/.test(file)) return new Response('Not found', { status: 404 })
+    const filePath = join(directory, file)
+    if (!isInsideDirectory(directory, filePath)) return new Response('Not found', { status: 404 })
+    try {
+      const info = await stat(filePath)
+      if (!info.isFile()) return new Response('Not found', { status: 404 })
+      if (info.size > MAX_PROJECT_BYTES) return new Response('Project file is too large', { status: 413 })
+      return new Response(await readFile(filePath, 'utf8'), {
+        status: 200,
+        headers: {
+          'content-type': 'application/json; charset=utf-8',
+          'cache-control': 'no-store',
+          'x-content-type-options': 'nosniff',
+        },
+      })
+    } catch (error) {
+      return new Response('Not found', { status: 404 })
+    }
+  }
+}
+
+
 const PROJECT_FORMAT = 'dsh-design-studio/project'
 const PROJECT_TEMPLATES = ['landing', 'dashboard', 'mobile', 'pricing', 'poster', 'onepager', 'form']
 const PROJECT_STYLES = ['minimal', 'editorial', 'nocturne', 'brutalist', 'pastel', 'enterprise']
@@ -1036,6 +1155,42 @@ function projectSlug(value) {
   return slug || 'design-project'
 }
 
+function hexChannels(hex) {
+  const value = /^#[0-9a-f]{6}$/i.test(String(hex)) ? String(hex).slice(1) : '000000'
+  return {
+    r: parseInt(value.slice(0, 2), 16),
+    g: parseInt(value.slice(2, 4), 16),
+    b: parseInt(value.slice(4, 6), 16),
+  }
+}
+
+function channelLuminance(value) {
+  const c = value / 255
+  return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)
+}
+
+function hexLuminance(hex) {
+  const { r, g, b } = hexChannels(hex)
+  return 0.2126 * channelLuminance(r) + 0.7152 * channelLuminance(g) + 0.0722 * channelLuminance(b)
+}
+
+function readableTextColor(background) {
+  const luminance = hexLuminance(background)
+  const white = 1.0
+  const dark = hexLuminance('#14161c')
+  const contrastWhite = (white + 0.05) / (luminance + 0.05)
+  const contrastDark = (luminance + 0.05) / (dark + 0.05)
+  return contrastWhite >= contrastDark ? '#ffffff' : '#14161c'
+}
+
+function mixHex(from, to, amount) {
+  const a = hexChannels(from)
+  const b = hexChannels(to)
+  const t = clamp(Number(amount) || 0, 0, 1)
+  const part = (value) => Math.round(value).toString(16).padStart(2, '0')
+  return '#' + part(a.r + (b.r - a.r) * t) + part(a.g + (b.g - a.g) * t) + part(a.b + (b.b - a.b) * t)
+}
+
 function normalizeProjectTokens(raw) {
   const source = raw && typeof raw === 'object' ? raw : {}
   const tokens = Object.assign({}, PROJECT_TOKEN_DEFAULTS)
@@ -1053,6 +1208,12 @@ function normalizeProjectTokens(raw) {
   for (const key of ['fontDisplay', 'fontBody']) {
     if (typeof tokens[key] !== 'string' || !tokens[key].trim()) tokens[key] = PROJECT_TOKEN_DEFAULTS[key]
   }
+  const sourceAccentText = /^#[0-9a-f]{6}$/i.test(String(source.accentText || ''))
+  if (!sourceAccentText) tokens.accentText = readableTextColor(tokens.accent)
+  const sourceMuted = /^#[0-9a-f]{6}$/i.test(String(source.muted || ''))
+  if (!sourceMuted) tokens.muted = mixHex(tokens.text, tokens.bg, 0.45)
+  const sourceBorder = /^#[0-9a-f]{6}$/i.test(String(source.border || ''))
+  if (!sourceBorder) tokens.border = mixHex(tokens.text, tokens.bg, 0.84)
   return tokens
 }
 
@@ -1096,7 +1257,7 @@ function formatProjectReport(report) {
   if (Array.isArray(report.projects) && report.projects.length) {
     lines.push('- projects:')
     for (const project of report.projects) {
-      lines.push('  - ' + project.projectName + ': ' + project.path + ' (' + project.bytes + ' bytes)')
+      lines.push('  - ' + project.projectName + ': ' + (project.path || project.file) + ' (' + project.bytes + ' bytes)')
     }
   } else if (report.action === 'list') {
     lines.push('- projects: none published yet')
@@ -1109,11 +1270,12 @@ export function designProjectsTool(ctx) {
   return {
     name: 'design_projects',
     description:
-      'Publish, list, or read Design Studio project files so the agent and the panel can exchange designs. `write` validates a project payload (name, brief, template, style, tokens, optional importedHtml/comments) and saves JSON under the session working directory .design-studio/projects/; the user opens it in the panel with Import. `list` and `read` inspect published projects. This is a file-based bridge: nothing is uploaded and no network server is exposed.',
+      'Publish, list, or read Design Studio project files so the agent and the panel can exchange designs. `write` validates a project payload (name, brief, template, style, tokens, optional importedHtml/comments) and saves JSON to the shared profile library; the panel lists that library automatically under Published designs, so no manual file picking is needed. `list` and `read` inspect published projects. The library is served read-only to the local panel; nothing is uploaded.',
     parameters: {
       type: 'object',
       properties: {
         action: { type: 'string', enum: ['list', 'read', 'write'], description: 'Bridge operation.' },
+        scope: { type: 'string', enum: ['profile', 'workspace'], description: 'Library to use: profile (default, shared and listed automatically in the panel) or workspace (.design-studio/projects under the session directory).' },
         name: { type: 'string', description: 'Stable file name for write/read (slugified, optional).' },
         file: { type: 'string', description: 'Project JSON file path for read; must stay inside .design-studio/projects.' },
         project: {
@@ -1133,8 +1295,8 @@ export function designProjectsTool(ctx) {
     async execute(args, exec) {
       const input = args && typeof args === 'object' ? args : {}
       const cwd = sessionDirectory(ctx, exec)
-      const directory = projectsDirectory(cwd)
-      const report = { tool: 'design_projects', action: input.action, directory, ok: false }
+      const directory = input.scope === 'workspace' ? projectsDirectory(cwd) : profileProjectsDirectory()
+      const report = { tool: 'design_projects', action: input.action, scope: input.scope === 'workspace' ? 'workspace' : 'profile', directory, ok: false }
 
       if (input.action === 'write') {
         const project = normalizeProjectPayload(input.project)
@@ -1150,40 +1312,15 @@ export function designProjectsTool(ctx) {
         report.path = filePath
         report.projectName = project.projectName
         report.bytes = Buffer.byteLength(text)
-        report.hint = 'Open Design Studio, expand the project section and click Import to open this .json file.'
+        report.hint = 'The panel lists published projects automatically (project section → Published designs); click the entry to open it.'
         return report
       }
 
       if (input.action === 'list') {
-        let names = []
-        try {
-          names = await readdir(directory)
-        } catch (error) {
-          names = []
-        }
-        const projects = []
-        for (const name of names) {
-          if (!name.toLowerCase().endsWith('.json')) continue
-          const filePath = join(directory, name)
-          try {
-            const info = await stat(filePath)
-            let projectName = name
-            try {
-              const parsed = JSON.parse(await readFile(filePath, 'utf8'))
-              const project = parsed && parsed.project ? parsed.project : parsed
-              if (project && typeof project.projectName === 'string' && project.projectName) projectName = project.projectName
-            } catch (error) {
-              /* keep the file name */
-            }
-            projects.push({ projectName, path: filePath, bytes: info.size })
-          } catch (error) {
-            /* skip unreadable entries */
-          }
-        }
-        projects.sort((a, b) => a.projectName.localeCompare(b.projectName))
+        const projects = await listProjectFiles(directory)
         report.ok = true
         report.projects = projects
-        report.hint = 'Projects are plain JSON files; open one in the panel with Import.'
+        report.hint = 'Published projects appear in the panel automatically; /design-studio/projects serves this list read-only.'
         return report
       }
 
@@ -1201,7 +1338,7 @@ export function designProjectsTool(ctx) {
         report.projectName = project.projectName
         report.bytes = Buffer.byteLength(text)
         report.project = project
-        report.hint = 'Import this project file from the panel to load it visually.'
+        report.hint = 'The panel lists this project under Published designs; click it there to load it visually.'
         return report
       }
 

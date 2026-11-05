@@ -95,6 +95,35 @@
 `<workspace>/.design-studio/projects/`，用户在面板「导入」打开；面板导出的 JSON 也可被 Agent 读取。
 纯文件交换，不监听端口。Host 自测覆盖写入/列表/读取往返与目录外路径拒绝。
 
+## 2.6 v1.4：面板自动发现 Agent 发布的项目（无需手动选文件）
+
+`design_projects write` 现在发布到共享 profile 库（默认 `~/.dsh/design-studio/projects`），
+Host 注册**只读**路由 `/design-studio/projects`，面板项目区「已发布设计」在打开/窗口聚焦/刷新时
+自动拉取列表，点击条目直接导入并切换项目：
+
+![自动发现并导入](screenshots/design-studio-published-auto-import.png)
+
+真实工具链验收（`design_verify_ui` + `steps`）：
+
+1. `design_projects({ action: "write", name: "published-probe", project: {...} })`
+2. `design_verify_ui({ steps: [{wait}, {click: "Published probe"}, {wait}, {screenshot}] })`
+3. 审计结果：`project: "Published probe"`、`2 project(s) in the switcher`、`1 comment pins`、PASS；
+   截图中「PUBLISHED DESIGNS」列表与导入后的 Nocturne 仪表盘、批注钉均可见。
+
+路由安全矩阵（curl 实测）：
+
+| 请求 | 结果 |
+|---|---|
+| `GET /design-studio/projects`（本机） | 200 + JSON 列表 |
+| 同源 `Origin` + `Sec-Fetch-Site: same-origin` | 200 |
+| 跨源 `Origin: https://evil.example` | 403 |
+| `Sec-Fetch-Site: cross-site` | 403 |
+| `POST` | 405（只允许 GET/HEAD） |
+| 目录外路径 / 不存在文件 | 404 |
+
+发布时 Tokens 会做一致性推导：缺少可读的 `accentText` 时按背景亮度选择深/浅文字，
+`muted` / `border` 缺失时从文字与背景混合，避免 Agent 只给品牌色时出现不可读按钮。
+
 ## 3. 核验中发现并修复的问题
 
 | 问题 | 证据 | 修复 |

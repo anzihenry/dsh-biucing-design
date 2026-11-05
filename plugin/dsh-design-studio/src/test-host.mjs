@@ -13,6 +13,7 @@ import { findChromePath, resolveSandboxAttempts } from '../lib/chrome.js'
 import { isCdpAvailable, pngSize } from '../lib/cdp.js'
 import {
   auditArtboard,
+  createProjectsResource,
   designProjectsTool,
   authenticatedGuiUrl,
   designScreenshotHtmlTool,
@@ -22,6 +23,7 @@ import {
   isLoopbackUrl,
   normalizeDevice,
   panelUrl,
+  profileProjectsDirectory,
   resolveOutputDir,
   sessionDirectory,
 } from '../lib/tools.js'
@@ -163,28 +165,64 @@ await check('the screenshot tool refuses files outside the session working direc
   }
 })
 
-await check('the project bridge round-trips a project file and refuses outside paths', async () => {
+await check('the project bridge round-trips through the profile library and the read-only route', async () => {
   const work = await mkdtemp(join(tmpdir(), 'dsh-design-bridge-'))
+  const library = await mkdtemp(join(tmpdir(), 'dsh-design-library-'))
+  const previousLibrary = process.env.DSH_DESIGN_PROJECTS_DIR
+  process.env.DSH_DESIGN_PROJECTS_DIR = library
   try {
     services.workingDirectory = { defaultDirectory: work }
     const tool = designProjectsTool(fakeCtx)
+    assert.equal(profileProjectsDirectory(), library)
+
     const written = await tool.execute({
       action: 'write',
       name: 'probe-project',
       project: { projectName: 'Probe design', brief: 'a calm landing page', template: 'landing', styleId: 'minimal', tokens: { accent: '#e11d48', radius: 18 } },
     }, fakeExec)
     assert.equal(written.ok, true)
+    assert.equal(written.scope, 'profile')
+    assert.ok(written.path.startsWith(library), 'expected profile library path, got ' + written.path)
     assert.ok(existsSync(written.path), 'project file missing')
+
     const listed = await tool.execute({ action: 'list' }, fakeExec)
     assert.equal(listed.projects.length, 1)
     assert.equal(listed.projects[0].projectName, 'Probe design')
+    assert.equal(listed.projects[0].file, 'probe-project.json')
+
     const read = await tool.execute({ action: 'read', name: 'probe-project' }, fakeExec)
     assert.equal(read.project.projectName, 'Probe design')
     assert.equal(read.project.tokens.accent, '#e11d48')
     assert.equal(read.project.tokens.radius, 18)
+    assert.match(read.project.tokens.accentText, /^#[0-9a-f]{6}$/i)
     await assert.rejects(() => tool.execute({ action: 'read', file: '/etc/hosts' }, fakeExec), /outside the projects directory/)
+
+    const resource = createProjectsResource()
+    const listResponse = await resource(new Request('http://127.0.0.1:1/design-studio/projects'))
+    assert.equal(listResponse.status, 200)
+    const listPayload = await listResponse.json()
+    assert.equal(listPayload.projects.length, 1)
+    assert.equal(listPayload.projects[0].file, 'probe-project.json')
+    const fileResponse = await resource(new Request('http://127.0.0.1:1/design-studio/projects/probe-project.json'))
+    assert.equal(fileResponse.status, 200)
+    assert.ok((await fileResponse.text()).includes('Probe design'))
+    const missing = await resource(new Request('http://127.0.0.1:1/design-studio/projects/nope.json'))
+    assert.equal(missing.status, 404)
+    const traversal = await resource(new Request('http://127.0.0.1:1/design-studio/projects/..%2Fsecret.json'))
+    assert.ok(traversal.status === 404 || traversal.status === 400)
+    const post = await resource(new Request('http://127.0.0.1:1/design-studio/projects', { method: 'POST' }))
+    assert.equal(post.status, 405)
+    const sameOrigin = await resource(new Request('http://127.0.0.1:1/design-studio/projects', { headers: { host: '127.0.0.1:1', origin: 'http://127.0.0.1:1', 'sec-fetch-site': 'same-origin' } }))
+    assert.equal(sameOrigin.status, 200)
+    const crossOrigin = await resource(new Request('http://127.0.0.1:1/design-studio/projects', { headers: { host: '127.0.0.1:1', origin: 'https://evil.example' } }))
+    assert.equal(crossOrigin.status, 403)
+    const crossSite = await resource(new Request('http://127.0.0.1:1/design-studio/projects', { headers: { 'sec-fetch-site': 'cross-site' } }))
+    assert.equal(crossSite.status, 403)
   } finally {
+    if (previousLibrary === undefined) delete process.env.DSH_DESIGN_PROJECTS_DIR
+    else process.env.DSH_DESIGN_PROJECTS_DIR = previousLibrary
     await rm(work, { recursive: true, force: true })
+    await rm(library, { recursive: true, force: true })
   }
 })
 

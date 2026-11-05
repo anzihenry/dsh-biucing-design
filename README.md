@@ -29,9 +29,10 @@ cd dsh-biucing-design
 - 右侧设计系统面板实时改品牌色、字体、字号节奏、留白密度与圆角，并给出对比度检查；
 - 6 套风格预设、快速优化、版本回滚、HTML 下载 / 复制、design tokens 与交付说明导出、外部 HTML 导入预览；
 - 状态保存在浏览器 localStorage。
-- **多项目 / 风格对比 / 画布批注（v1.3）**：项目切换与导入导出、3 套风格并排对比、
-  按坐标定位的批注钉，以及 `design_projects` Agent↔面板项目文件桥。
-- **浏览器核验工具（v1.3）**：`design_verify_ui` / `design_screenshot_html` 用独立临时 headless Chrome
+- **多项目 / 风格对比 / 画布批注（v1.4）**：项目切换与导入导出、3 套风格并排对比、
+  按坐标定位的批注钉，以及 `design_projects` Agent↔面板项目桥；面板「已发布设计」自动列出
+  Agent 发布的项目，点击即打开（只读本地路由，无需手动选文件）。
+- **浏览器核验工具（v1.4）**：`design_verify_ui` / `design_screenshot_html` 用独立临时 headless Chrome
   截图并审计设计工作室面板或任意自包含设计稿，支持交互步骤、默认裁剪到面板、返回 PASS/FAIL 问题清单，
   并审计沙箱 artboard 里的设计稿；真实核验记录见 [verify/visual-verification.md](verify/visual-verification.md)。
 
