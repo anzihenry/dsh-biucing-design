@@ -6,11 +6,12 @@
  * to screenshot and audit the panel (through the authenticated Web GUI and the
  * `?panel=design-studio` deep link) or any generated design document.
  */
-import { designScreenshotHtmlTool, designVerifyUiTool } from './lib/tools.js'
+import { designProjectsTool, designScreenshotHtmlTool, designVerifyUiTool } from './lib/tools.js'
 
 export const inject = ['tools']
 
 export function apply(ctx) {
   ctx.effect(() => ctx.tools.register(designVerifyUiTool(ctx)))
   ctx.effect(() => ctx.tools.register(designScreenshotHtmlTool(ctx)))
+  ctx.effect(() => ctx.tools.register(designProjectsTool(ctx)))
 }

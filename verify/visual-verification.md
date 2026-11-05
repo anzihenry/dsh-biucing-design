@@ -66,6 +66,35 @@
 
 另外本轮的隐私修复可直接从截图尺寸确认：旧截图 1440×900（含 DSH 侧栏），新截图 1160×900（仅面板）。
 
+## 2.5 v1.3：多项目、风格对比、画布批注、Agent↔面板项目桥
+
+### 多项目
+
+项目切换器 + 新建/导入/导出/删除；每个项目独立保存需求、模板、风格、tokens、版本、批注：
+自动步骤「点击 New project」后审计显示 `2 project(s) in the switcher`。
+
+![多项目](screenshots/design-studio-multi-project.png)
+
+### 风格对比
+
+顶栏「对比风格」把当前模板按 3 套风格并排渲染，点击任一画板应用其风格：
+审计显示 `3 compare artboards`，截图可见 Minimal / Editorial / Nocturne 三个画板与 current 标记。
+
+![风格对比](screenshots/design-studio-compare-styles.png)
+
+### 画布批注
+
+批注模式下点击画板任意位置（`clickAt` 步骤）、输入文字、Add note，批注钉按百分比定位并在缩放后保持位置；
+审计显示 `1 comment pins`，批注同时进入「复制交付说明」。
+
+![画布批注](screenshots/design-studio-comments.png)
+
+### Agent ↔ 面板项目桥
+
+新增工具 `design_projects`（list / read / write）：Agent 把项目 JSON 写入
+`<workspace>/.design-studio/projects/`，用户在面板「导入」打开；面板导出的 JSON 也可被 Agent 读取。
+纯文件交换，不监听端口。Host 自测覆盖写入/列表/读取往返与目录外路径拒绝。
+
 ## 3. 核验中发现并修复的问题
 
 | 问题 | 证据 | 修复 |

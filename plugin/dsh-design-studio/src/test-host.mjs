@@ -13,6 +13,7 @@ import { findChromePath, resolveSandboxAttempts } from '../lib/chrome.js'
 import { isCdpAvailable, pngSize } from '../lib/cdp.js'
 import {
   auditArtboard,
+  designProjectsTool,
   authenticatedGuiUrl,
   designScreenshotHtmlTool,
   designVerifyUiTool,
@@ -159,6 +160,31 @@ await check('the screenshot tool refuses files outside the session working direc
   } finally {
     await rm(work, { recursive: true, force: true })
     await rm(outside, { recursive: true, force: true })
+  }
+})
+
+await check('the project bridge round-trips a project file and refuses outside paths', async () => {
+  const work = await mkdtemp(join(tmpdir(), 'dsh-design-bridge-'))
+  try {
+    services.workingDirectory = { defaultDirectory: work }
+    const tool = designProjectsTool(fakeCtx)
+    const written = await tool.execute({
+      action: 'write',
+      name: 'probe-project',
+      project: { projectName: 'Probe design', brief: 'a calm landing page', template: 'landing', styleId: 'minimal', tokens: { accent: '#e11d48', radius: 18 } },
+    }, fakeExec)
+    assert.equal(written.ok, true)
+    assert.ok(existsSync(written.path), 'project file missing')
+    const listed = await tool.execute({ action: 'list' }, fakeExec)
+    assert.equal(listed.projects.length, 1)
+    assert.equal(listed.projects[0].projectName, 'Probe design')
+    const read = await tool.execute({ action: 'read', name: 'probe-project' }, fakeExec)
+    assert.equal(read.project.projectName, 'Probe design')
+    assert.equal(read.project.tokens.accent, '#e11d48')
+    assert.equal(read.project.tokens.radius, 18)
+    await assert.rejects(() => tool.execute({ action: 'read', file: '/etc/hosts' }, fakeExec), /outside the projects directory/)
+  } finally {
+    await rm(work, { recursive: true, force: true })
   }
 })
 

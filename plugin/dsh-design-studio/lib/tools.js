@@ -22,7 +22,7 @@
  *     `DSH_DESIGN_CHROME_NO_SANDBOX=never`.
  */
 import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative, resolve as resolvePath, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -385,6 +385,36 @@ async function runSteps(client, sessionId, steps, outputDir, options = {}) {
         const outcome = await evaluate(client, sessionId, typeIntoExpression(step.selector, step.text == null ? '' : step.text))
         result.ok = Boolean(outcome && outcome.typed)
         if (!result.ok) result.error = (outcome && outcome.reason) || 'target not found'
+      } else if (action === 'clickAt') {
+        if (!step.selector) throw new Error('clickAt requires a selector')
+        const xRatio = clamp(Number(step.x) || 0, 0, 1)
+        const yRatio = clamp(Number(step.y) || 0, 0, 1)
+        const outcome = await evaluate(client, sessionId, `(() => {
+          const element = document.querySelector(${JSON.stringify(String(step.selector))});
+          if (!element) return { clicked: false, reason: 'selector not found' };
+          const box = element.getBoundingClientRect();
+          const clientX = box.left + box.width * ${xRatio};
+          const clientY = box.top + box.height * ${yRatio};
+          const options = { bubbles: true, cancelable: true, clientX: clientX, clientY: clientY, button: 0 };
+          element.dispatchEvent(new MouseEvent('mousedown', options));
+          element.dispatchEvent(new MouseEvent('mouseup', options));
+          element.dispatchEvent(new MouseEvent('click', options));
+          return { clicked: true, clientX: clientX, clientY: clientY };
+        })()`)
+        result.ok = Boolean(outcome && outcome.clicked)
+        if (!result.ok) result.error = (outcome && outcome.reason) || 'target not found'
+      } else if (action === 'select') {
+        if (!step.selector) throw new Error('select requires a selector')
+        const value = step.value == null ? step.text : step.value
+        const outcome = await evaluate(client, sessionId, `(() => {
+          const element = document.querySelector(${JSON.stringify(String(step.selector))});
+          if (!element) return { selected: false, reason: 'selector not found' };
+          element.value = ${JSON.stringify(String(value == null ? '' : value))};
+          element.dispatchEvent(new Event('change', { bubbles: true }));
+          return { selected: true };
+        })()`)
+        result.ok = Boolean(outcome && outcome.selected)
+        if (!result.ok) result.error = (outcome && outcome.reason) || 'target not found'
       } else if (action === 'wait') {
         const ms = clamp(Number(step.ms) || 300, 0, 5000)
         await delay(ms)
@@ -417,7 +447,7 @@ async function runSteps(client, sessionId, steps, outputDir, options = {}) {
 function computeIssues(report) {
   const issues = []
   const add = (code, severity, message) => issues.push({ code, severity, message })
-  const audit = report.audit || {}
+  const audit = report.auditAfterSteps || report.audit || {}
   const bodyChildren = audit.dom && Array.isArray(audit.dom.bodyChildren) ? audit.dom.bodyChildren : []
 
   if (!report.panelMounted) add('panel-not-mounted', 'error', 'The Design Studio panel did not mount in the headless page.')
@@ -594,7 +624,7 @@ function formatVerifyReport(report) {
       lines.push('  - ' + shot.label + ': ' + shot.path + ' (' + (shot.width || '?') + 'x' + (shot.height || '?') + ', ' + Math.round(shot.bytes / 1024) + ' KB)')
     }
   }
-  const audit = report.audit || {}
+  const audit = report.auditAfterSteps || report.audit || {}
   if (audit.columns) {
     const describe = (part) => (part ? 'x=' + part.x + ' ' + part.width + 'x' + part.height : 'absent')
     lines.push('- columns: left ' + describe(audit.columns.left) + ', canvas ' + describe(audit.columns.canvas) + ', inspector ' + describe(audit.columns.right))
@@ -618,8 +648,13 @@ function formatVerifyReport(report) {
       lines.push('- design inside artboard: unavailable (' + (report.iframeAudit.reason || 'unknown') + ')')
     }
   }
+  if (audit.project) {
+    lines.push('- project: "' + String(audit.project.active || '') + '" (' + audit.project.options + ' project(s) in the switcher)')
+  }
   if (audit.controls) {
-    lines.push('- controls: ' + audit.controls.chips + ' chips, ' + audit.controls.buttons + ' buttons, ' + audit.controls.historyRows + ' version rows')
+    lines.push('- controls: ' + audit.controls.chips + ' chips, ' + audit.controls.buttons + ' buttons, ' + audit.controls.historyRows + ' version rows'
+      + (audit.controls.commentPins ? ', ' + audit.controls.commentPins + ' comment pins' : '')
+      + (audit.controls.compareArtboards ? ', ' + audit.controls.compareArtboards + ' compare artboards' : ''))
   }
   const colors = audit.colors || {}
   if (colors.rootBackground || colors.rootText) {
@@ -671,15 +706,18 @@ export function designVerifyUiTool(ctx) {
         },
         steps: {
           type: 'array',
-          maxItems: 12,
+          maxItems: 20,
           description: 'Optional interaction steps executed before the final audit, e.g. click a template chip, type a brief, or take a labeled screenshot.',
           items: {
             type: 'object',
             properties: {
-              action: { type: 'string', enum: ['click', 'type', 'wait', 'screenshot'] },
+              action: { type: 'string', enum: ['click', 'clickAt', 'type', 'select', 'wait', 'screenshot'] },
               selector: { type: 'string', description: 'CSS selector for click/type.' },
               text: { type: 'string', description: 'Visible text to click (when selector is omitted) or text to type.' },
               label: { type: 'string', description: 'Screenshot label for action="screenshot".' },
+              value: { type: 'string', description: 'Option value for action="select".' },
+              x: { type: 'number', description: 'Horizontal fraction (0..1) for action="clickAt".' },
+              y: { type: 'number', description: 'Vertical fraction (0..1) for action="clickAt".' },
               ms: { type: 'number', description: 'Wait duration for action="wait".' },
             },
             required: ['action'],
@@ -705,7 +743,7 @@ export function designVerifyUiTool(ctx) {
       const requestedTheme = input.theme === 'dark' || input.theme === 'light' ? input.theme : null
       const fullPage = input.full_page === true
       const includeShell = input.include_shell === true
-      const steps = Array.isArray(input.steps) ? input.steps.slice(0, 12) : []
+      const steps = Array.isArray(input.steps) ? input.steps.slice(0, 20) : []
       const cwd = sessionDirectory(ctx, exec)
       const outputDir = resolveOutputDir(input.output_dir, cwd)
       const baseUrl = authenticatedGuiUrl(ctx)
@@ -956,6 +994,218 @@ export function designScreenshotHtmlTool(ctx) {
           }
         }
       }
+    },
+  }
+}
+
+/* ------------------------------------------------------------------------- *
+ * design_projects — agent ↔ panel project file bridge
+ * ------------------------------------------------------------------------- */
+
+const PROJECT_FORMAT = 'dsh-design-studio/project'
+const PROJECT_TEMPLATES = ['landing', 'dashboard', 'mobile', 'pricing', 'poster', 'onepager', 'form']
+const PROJECT_STYLES = ['minimal', 'editorial', 'nocturne', 'brutalist', 'pastel', 'enterprise']
+const PROJECT_TOKEN_DEFAULTS = {
+  mode: 'light',
+  accent: '#4a5cf5',
+  accentText: '#ffffff',
+  bg: '#ffffff',
+  surface: '#f6f7f9',
+  surfaceAlt: '#eef0f4',
+  text: '#12151c',
+  muted: '#5b6270',
+  border: '#e2e5ec',
+  fontDisplay: "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif",
+  fontBody: "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif",
+  radius: 12,
+  density: 'regular',
+  scale: 'regular',
+}
+
+/** Directory the panel and the agent exchange project JSON files through. */
+export function projectsDirectory(cwd) {
+  return join(cwd, '.design-studio', 'projects')
+}
+
+function projectSlug(value) {
+  const slug = String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\u3400-\u9fff]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48)
+  return slug || 'design-project'
+}
+
+function normalizeProjectTokens(raw) {
+  const source = raw && typeof raw === 'object' ? raw : {}
+  const tokens = Object.assign({}, PROJECT_TOKEN_DEFAULTS)
+  for (const key of Object.keys(PROJECT_TOKEN_DEFAULTS)) {
+    if (source[key] !== undefined && source[key] !== null) tokens[key] = source[key]
+  }
+  if (PROJECT_TEMPLATES.indexOf(String(tokens.mode)) !== -1) tokens.mode = 'light'
+  tokens.mode = tokens.mode === 'dark' ? 'dark' : 'light'
+  tokens.radius = clamp(Number(tokens.radius) || 12, 0, 28)
+  tokens.density = ['compact', 'regular', 'airy'].indexOf(tokens.density) === -1 ? 'regular' : tokens.density
+  tokens.scale = ['compact', 'regular', 'airy'].indexOf(tokens.scale) === -1 ? 'regular' : tokens.scale
+  for (const key of ['accent', 'accentText', 'bg', 'surface', 'surfaceAlt', 'text', 'muted', 'border']) {
+    if (!/^#[0-9a-f]{6}$/i.test(String(tokens[key]))) tokens[key] = PROJECT_TOKEN_DEFAULTS[key]
+  }
+  for (const key of ['fontDisplay', 'fontBody']) {
+    if (typeof tokens[key] !== 'string' || !tokens[key].trim()) tokens[key] = PROJECT_TOKEN_DEFAULTS[key]
+  }
+  return tokens
+}
+
+/** Normalize an agent-supplied project payload into the panel's project shape. */
+export function normalizeProjectPayload(raw) {
+  const source = raw && typeof raw === 'object' ? raw : {}
+  const project = source.project && typeof source.project === 'object' ? source.project : source
+  const comments = Array.isArray(project.comments) ? project.comments.slice(0, 120).map((comment, index) => {
+    if (!comment || typeof comment !== 'object') return null
+    return {
+      id: String(comment.id || 'c' + index),
+      x: clamp(Number(comment.x) || 0, 0, 100),
+      y: clamp(Number(comment.y) || 0, 0, 100),
+      text: String(comment.text || '').slice(0, 500),
+      at: Number(comment.at) || Date.now(),
+    }
+  }).filter(Boolean) : []
+  return {
+    id: typeof project.id === 'string' && project.id ? project.id : 'p' + Date.now().toString(36),
+    projectName: String(project.projectName || project.name || 'Imported design').slice(0, 120),
+    brief: typeof project.brief === 'string' ? project.brief : '',
+    draftBrief: typeof project.draftBrief === 'string' ? project.draftBrief : (typeof project.brief === 'string' ? project.brief : ''),
+    template: PROJECT_TEMPLATES.indexOf(project.template) === -1 ? 'landing' : project.template,
+    styleId: PROJECT_STYLES.indexOf(project.styleId) === -1 ? 'minimal' : project.styleId,
+    tokens: normalizeProjectTokens(project.tokens),
+    history: [],
+    importedHtml: typeof project.importedHtml === 'string' ? project.importedHtml.slice(0, 500000) : '',
+    importedTitle: typeof project.importedTitle === 'string' ? project.importedTitle : '',
+    comments: comments,
+  }
+}
+
+function formatProjectReport(report) {
+  const lines = ['Design project bridge']
+  lines.push('- action: ' + report.action)
+  lines.push('- result: ' + (report.ok ? 'ok' : 'failed'))
+  if (report.directory) lines.push('- directory: ' + report.directory)
+  if (report.path) lines.push('- file: ' + report.path)
+  if (report.projectName) lines.push('- project: ' + report.projectName)
+  if (report.bytes != null) lines.push('- bytes: ' + report.bytes)
+  if (Array.isArray(report.projects) && report.projects.length) {
+    lines.push('- projects:')
+    for (const project of report.projects) {
+      lines.push('  - ' + project.projectName + ': ' + project.path + ' (' + project.bytes + ' bytes)')
+    }
+  } else if (report.action === 'list') {
+    lines.push('- projects: none published yet')
+  }
+  if (report.hint) lines.push('- hint: ' + report.hint)
+  return lines.join('\n')
+}
+
+export function designProjectsTool(ctx) {
+  return {
+    name: 'design_projects',
+    description:
+      'Publish, list, or read Design Studio project files so the agent and the panel can exchange designs. `write` validates a project payload (name, brief, template, style, tokens, optional importedHtml/comments) and saves JSON under the session working directory .design-studio/projects/; the user opens it in the panel with Import. `list` and `read` inspect published projects. This is a file-based bridge: nothing is uploaded and no network server is exposed.',
+    parameters: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['list', 'read', 'write'], description: 'Bridge operation.' },
+        name: { type: 'string', description: 'Stable file name for write/read (slugified, optional).' },
+        file: { type: 'string', description: 'Project JSON file path for read; must stay inside .design-studio/projects.' },
+        project: {
+          type: 'object',
+          additionalProperties: true,
+          description: 'Project payload for write: projectName, brief, template, styleId, tokens, importedHtml, comments.',
+        },
+      },
+      required: ['action'],
+      additionalProperties: false,
+    },
+    output: {
+      schema: { type: 'object', additionalProperties: true },
+      render: (args, value) => [{ type: 'text', text: formatProjectReport(value || {}) }],
+    },
+    timeoutMs: 30000,
+    async execute(args, exec) {
+      const input = args && typeof args === 'object' ? args : {}
+      const cwd = sessionDirectory(ctx, exec)
+      const directory = projectsDirectory(cwd)
+      const report = { tool: 'design_projects', action: input.action, directory, ok: false }
+
+      if (input.action === 'write') {
+        const project = normalizeProjectPayload(input.project)
+        const base = projectSlug(input.name || project.projectName)
+        const fileName = base.endsWith('.json') ? base : base + '.json'
+        const filePath = join(directory, fileName)
+        if (!isInsideDirectory(directory, filePath)) throw new Error('Refusing to write outside the projects directory.')
+        const payload = { format: PROJECT_FORMAT, version: 2, project }
+        const text = JSON.stringify(payload, null, 2)
+        await mkdir(directory, { recursive: true })
+        await writeFile(filePath, text, 'utf8')
+        report.ok = true
+        report.path = filePath
+        report.projectName = project.projectName
+        report.bytes = Buffer.byteLength(text)
+        report.hint = 'Open Design Studio, expand the project section and click Import to open this .json file.'
+        return report
+      }
+
+      if (input.action === 'list') {
+        let names = []
+        try {
+          names = await readdir(directory)
+        } catch (error) {
+          names = []
+        }
+        const projects = []
+        for (const name of names) {
+          if (!name.toLowerCase().endsWith('.json')) continue
+          const filePath = join(directory, name)
+          try {
+            const info = await stat(filePath)
+            let projectName = name
+            try {
+              const parsed = JSON.parse(await readFile(filePath, 'utf8'))
+              const project = parsed && parsed.project ? parsed.project : parsed
+              if (project && typeof project.projectName === 'string' && project.projectName) projectName = project.projectName
+            } catch (error) {
+              /* keep the file name */
+            }
+            projects.push({ projectName, path: filePath, bytes: info.size })
+          } catch (error) {
+            /* skip unreadable entries */
+          }
+        }
+        projects.sort((a, b) => a.projectName.localeCompare(b.projectName))
+        report.ok = true
+        report.projects = projects
+        report.hint = 'Projects are plain JSON files; open one in the panel with Import.'
+        return report
+      }
+
+      if (input.action === 'read') {
+        const requested = typeof input.file === 'string' && input.file.trim()
+          ? (isAbsolute(input.file) ? input.file : join(directory, input.file.trim()))
+          : join(directory, projectSlug(input.name || '') + '.json')
+        if (!isInsideDirectory(directory, requested)) throw new Error('Refusing to read outside the projects directory.')
+        if (!existsSync(requested)) throw new Error('Project file not found: ' + requested)
+        const text = await readFile(requested, 'utf8')
+        const parsed = JSON.parse(text)
+        const project = normalizeProjectPayload(parsed)
+        report.ok = true
+        report.path = requested
+        report.projectName = project.projectName
+        report.bytes = Buffer.byteLength(text)
+        report.project = project
+        report.hint = 'Import this project file from the panel to load it visually.'
+        return report
+      }
+
+      throw new Error('Unknown design_projects action: ' + String(input.action))
     },
   }
 }

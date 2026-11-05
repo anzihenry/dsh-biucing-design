@@ -92,12 +92,27 @@ ${CONTRAST_HELPERS}
       })),
     },
     iframe: frame ? { rect: rect(frame), sandbox: frame.getAttribute('sandbox'), srcBytes: (frame.getAttribute('srcdoc') || '').length } : null,
+    project: {
+      options: document.querySelectorAll('.dsx-project-select option').length,
+      active: (() => {
+        const select = document.querySelector('.dsx-project-select');
+        if (!select) return null;
+        const option = select.options && select.options[select.selectedIndex];
+        return option ? option.textContent : null;
+      })(),
+      name: (() => {
+        const input = document.querySelector('.dsx-project-input');
+        return input ? input.value : null;
+      })(),
+    },
     controls: {
       buttons: buttons.length,
       chips: document.querySelectorAll('.dsx-chip').length,
       historyRows: document.querySelectorAll('.dsx-history-row').length,
       selects: document.querySelectorAll('.dsx-root select').length,
       textareas: document.querySelectorAll('.dsx-root textarea').length,
+      commentPins: document.querySelectorAll('.dsx-comment-pin').length,
+      compareArtboards: document.querySelectorAll('.dsx-compare-frame').length,
     },
     a11y: {
       unlabeledButtons: unlabeled,

@@ -20,7 +20,7 @@ window.__ModuleLoader__.load({
     const PANEL_ID = 'design-studio';
     const LOCALE_NS = 'design-studio';
     const STORAGE_KEY = 'dsh-design-studio.state.v1';
-    const STATE_VERSION = 1;
+    const STATE_VERSION = 2;
 
     /* ------------------------------------------------------------------ *
      * Design synthesis engine (inlined by scripts/build-client.mjs)
@@ -46,7 +46,11 @@ window.__ModuleLoader__.load({
         'panel.subtitle': 'Brief to canvas',
         'project.untitled': 'Untitled design',
         'project.namePlaceholder': 'Project name',
-        'project.new': 'New design',
+        'project.new': 'New project',
+        'project.select': 'Project',
+        'project.export': 'Export',
+        'project.import': 'Import',
+        'project.delete': 'Delete',
         'brief.heading': 'Brief',
         'brief.placeholder': 'Describe the design: goal, layout, content, audience. Example: a calm landing page for an API product with a hero, code sample and pricing.',
         'brief.shortcut': '⌘/Ctrl + Enter to generate',
@@ -84,6 +88,18 @@ window.__ModuleLoader__.load({
         'toolbar.mode': 'Toggle light / dark',
         'toolbar.export': 'Export HTML',
         'toolbar.import': 'Import HTML',
+        'toolbar.compare': 'Compare styles',
+        'toolbar.comment': 'Comment mode',
+        'compare.current': 'current',
+        'comments.heading': 'Comments',
+        'comments.empty': 'Turn on comment mode, then click a spot on the artboard to add a note.',
+        'comments.add': 'Add note',
+        'comments.delete': 'Delete',
+        'comments.close': 'Close',
+        'comments.cancel': 'Cancel',
+        'comments.placeholder': 'Describe the change for this spot…',
+        'toast.commentAdded': 'Comment added',
+        'toast.commentDeleted': 'Comment deleted',
         'inspector.heading': 'Design system',
         'inspector.style': 'Current style',
         'inspector.reset': 'Reset to style',
@@ -143,7 +159,11 @@ window.__ModuleLoader__.load({
         'toast.downloaded': 'HTML downloaded',
         'toast.failed': 'Action failed',
         'toast.imported': 'Imported HTML shown',
-        'toast.reset': 'New design',
+        'toast.reset': 'New project',
+        'toast.projectDeleted': 'Project deleted',
+        'toast.projectImported': 'Project imported',
+        'toast.projectImportFailed': 'Could not import that project file',
+        'toast.projectExported': 'Project exported',
         'toast.engineMissing': 'Design engine is unavailable',
         'engine.missing': 'The design engine could not be loaded. Run the build step: node scripts/build-client.mjs.',
       },
@@ -152,7 +172,11 @@ window.__ModuleLoader__.load({
         'panel.subtitle': '需求直达画布',
         'project.untitled': '未命名设计',
         'project.namePlaceholder': '项目名称',
-        'project.new': '新建设计',
+        'project.new': '新建项目',
+        'project.select': '项目',
+        'project.export': '导出',
+        'project.import': '导入',
+        'project.delete': '删除',
         'brief.heading': '需求描述',
         'brief.placeholder': '描述你想要的设计：目标、布局、内容、受众。例如：一个面向 API 产品的克制落地页，包含首屏、代码示例与定价。',
         'brief.shortcut': '⌘/Ctrl + Enter 生成',
@@ -190,6 +214,18 @@ window.__ModuleLoader__.load({
         'toolbar.mode': '切换明暗',
         'toolbar.export': '导出 HTML',
         'toolbar.import': '导入 HTML',
+        'toolbar.compare': '对比风格',
+        'toolbar.comment': '批注模式',
+        'compare.current': '当前',
+        'comments.heading': '批注',
+        'comments.empty': '打开批注模式，点击画板上的位置添加说明。',
+        'comments.add': '添加批注',
+        'comments.delete': '删除',
+        'comments.close': '关闭',
+        'comments.cancel': '取消',
+        'comments.placeholder': '描述这个位置需要怎么改…',
+        'toast.commentAdded': '已添加批注',
+        'toast.commentDeleted': '已删除批注',
         'inspector.heading': '设计系统',
         'inspector.style': '当前风格',
         'inspector.reset': '恢复风格预设',
@@ -249,7 +285,11 @@ window.__ModuleLoader__.load({
         'toast.downloaded': 'HTML 已下载',
         'toast.failed': '操作失败',
         'toast.imported': '已显示导入的 HTML',
-        'toast.reset': '已新建设计',
+        'toast.reset': '已新建项目',
+        'toast.projectDeleted': '项目已删除',
+        'toast.projectImported': '项目已导入',
+        'toast.projectImportFailed': '无法导入该项目文件',
+        'toast.projectExported': '项目已导出',
         'toast.engineMissing': '设计引擎不可用',
         'engine.missing': '设计引擎未能加载。请执行构建：node scripts/build-client.mjs。',
       },
@@ -420,10 +460,16 @@ window.__ModuleLoader__.load({
       return engine && engine.styles.length ? engine.styles[0] : null;
     }
 
-    function createInitialState() {
+    let projectSeed = 0;
+    function newProjectId() {
+      projectSeed += 1;
+      return 'p' + Date.now().toString(36) + projectSeed.toString(36);
+    }
+
+    function createProjectData(overrides) {
       const style = defaultStyle();
-      return {
-        version: STATE_VERSION,
+      return Object.assign({
+        id: newProjectId(),
         projectName: '',
         brief: '',
         draftBrief: '',
@@ -431,31 +477,27 @@ window.__ModuleLoader__.load({
         styleId: style ? style.id : 'minimal',
         tokens: ensureTokens(style ? style.tokens : null),
         history: [],
-        device: 'desktop',
-        zoom: 0.72,
         importedHtml: '',
         importedTitle: '',
+        comments: [],
+      }, overrides || {});
+    }
+
+    /** The active project as a detached record (for the project map). */
+    function pickProjectData(state) {
+      return {
+        id: state.activeProjectId,
+        projectName: state.projectName,
+        brief: state.brief,
+        draftBrief: state.draftBrief,
+        template: state.template,
+        styleId: state.styleId,
+        tokens: state.tokens,
+        history: state.history,
+        importedHtml: state.importedHtml,
+        importedTitle: state.importedTitle,
+        comments: state.comments,
       };
-    }
-
-    function readSavedState() {
-      let saved = null;
-      try {
-        const raw = window.localStorage.getItem(STORAGE_KEY);
-        if (raw) saved = JSON.parse(raw);
-      } catch (error) {
-        saved = null;
-      }
-      if (!saved || typeof saved !== 'object' || saved.version !== STATE_VERSION) return null;
-      return saved;
-    }
-
-    function writeSavedState(state) {
-      try {
-        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-      } catch (error) {
-        /* Storage full or unavailable: the panel keeps working in memory. */
-      }
     }
 
     function sanitizeHistoryEntry(entry) {
@@ -471,29 +513,94 @@ window.__ModuleLoader__.load({
       };
     }
 
+    function sanitizeComments(list) {
+      if (!Array.isArray(list)) return [];
+      return list.slice(0, 120).map((comment, index) => {
+        if (!comment || typeof comment !== 'object') return null;
+        return {
+          id: String(comment.id || 'c' + index),
+          x: clamp(Number(comment.x) || 0, 0, 100),
+          y: clamp(Number(comment.y) || 0, 0, 100),
+          text: String(comment.text || '').slice(0, 500),
+          at: Number(comment.at) || Date.now(),
+        };
+      }).filter(Boolean);
+    }
+
+    function sanitizeProjectData(raw) {
+      const fallback = createProjectData();
+      if (!raw || typeof raw !== 'object') return fallback;
+      const history = Array.isArray(raw.history)
+        ? raw.history.map(sanitizeHistoryEntry).filter(Boolean).slice(0, 12)
+        : [];
+      return {
+        id: typeof raw.id === 'string' && raw.id ? raw.id : fallback.id,
+        projectName: typeof raw.projectName === 'string' ? raw.projectName : '',
+        brief: typeof raw.brief === 'string' ? raw.brief : '',
+        draftBrief: typeof raw.draftBrief === 'string' ? raw.draftBrief : (typeof raw.brief === 'string' ? raw.brief : ''),
+        template: engine && engine.templates.some((item) => item.id === raw.template) ? raw.template : fallback.template,
+        styleId: engine && engine.styles.some((item) => item.id === raw.styleId) ? raw.styleId : fallback.styleId,
+        tokens: ensureTokens(raw.tokens),
+        history: history,
+        importedHtml: typeof raw.importedHtml === 'string' ? raw.importedHtml : '',
+        importedTitle: typeof raw.importedTitle === 'string' ? raw.importedTitle : '',
+        comments: sanitizeComments(raw.comments),
+      };
+    }
+
+    function createInitialState() {
+      const project = createProjectData();
+      return Object.assign({ version: STATE_VERSION, activeProjectId: project.id, projectOrder: [project.id], projects: {} }, project, {
+        device: 'desktop',
+        zoom: 0.72,
+      });
+    }
+
+    function readSavedState() {
+      let saved = null;
+      try {
+        const raw = window.localStorage.getItem(STORAGE_KEY);
+        if (raw) saved = JSON.parse(raw);
+      } catch (error) {
+        saved = null;
+      }
+      if (!saved || typeof saved !== 'object') return null;
+      return saved;
+    }
+
+    function writeSavedState(state) {
+      try {
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      } catch (error) {
+        /* Storage full or unavailable: the panel keeps working in memory. */
+      }
+    }
+
     function loadState() {
       const fallback = createInitialState();
       const saved = readSavedState();
       if (!saved) return fallback;
       try {
-        const tokens = ensureTokens(saved.tokens);
-        const history = Array.isArray(saved.history)
-          ? saved.history.map(sanitizeHistoryEntry).filter(Boolean).slice(0, 12)
-          : [];
-        return {
+        const legacy = saved.version !== STATE_VERSION;
+        const active = sanitizeProjectData(legacy ? Object.assign({}, saved, { id: newProjectId() }) : saved);
+        const projects = {};
+        const order = [active.id];
+        if (saved.projects && typeof saved.projects === 'object') {
+          for (const key of Object.keys(saved.projects)) {
+            if (!key || key === active.id || order.length >= 12) continue;
+            const project = sanitizeProjectData(Object.assign({}, saved.projects[key], { id: key }));
+            projects[project.id] = project;
+            order.push(project.id);
+          }
+        }
+        return Object.assign({}, active, {
           version: STATE_VERSION,
-          projectName: typeof saved.projectName === 'string' ? saved.projectName : '',
-          brief: typeof saved.brief === 'string' ? saved.brief : '',
-          draftBrief: typeof saved.draftBrief === 'string' ? saved.draftBrief : (typeof saved.brief === 'string' ? saved.brief : ''),
-          template: engine && engine.templates.some((item) => item.id === saved.template) ? saved.template : fallback.template,
-          styleId: engine && engine.styles.some((item) => item.id === saved.styleId) ? saved.styleId : fallback.styleId,
-          tokens: tokens,
-          history: history,
+          activeProjectId: active.id,
+          projects: projects,
+          projectOrder: order,
           device: DEVICES.some((item) => item.id === saved.device) ? saved.device : fallback.device,
           zoom: clamp(Number(saved.zoom) || fallback.zoom, 0.25, 2),
-          importedHtml: typeof saved.importedHtml === 'string' ? saved.importedHtml : '',
-          importedTitle: typeof saved.importedTitle === 'string' ? saved.importedTitle : '',
-        };
+        });
       } catch (error) {
         return fallback;
       }
@@ -526,11 +633,15 @@ window.__ModuleLoader__.load({
         const [importDraft, setImportDraft] = useState('');
         const [tokenDraft, setTokenDraft] = useState('');
         const [composerOpen, setComposerOpen] = useState(false);
+        const [commentMode, setCommentMode] = useState(false);
+        const [commentDraft, setCommentDraft] = useState(null);
+        const [compareMode, setCompareMode] = useState(false);
         const [canvasWidth, setCanvasWidth] = useState(0);
         const [renderTokens, setRenderTokens] = useState(state.tokens);
         const dialogReturnFocus = useRef(null);
         const toastTimer = useRef(null);
         const canvasRef = useRef(null);
+        const importFileRef = useRef(null);
         const stateRef = useRef(state);
         stateRef.current = state;
 
@@ -703,12 +814,128 @@ window.__ModuleLoader__.load({
           generateFrom(state.draftBrief);
         }, [generateFrom, state.draftBrief]);
 
-        const handleNewDesign = useCallback(() => {
-          const fresh = createInitialState();
-          setState((previous) => Object.assign({}, fresh, { projectName: previous.projectName }));
-          setDialog(null);
+        const switchProject = useCallback((id) => {
+          setState((previous) => {
+            if (!id || id === previous.activeProjectId || !previous.projects[id]) return previous;
+            const saved = Object.assign({}, previous.projects);
+            saved[previous.activeProjectId] = pickProjectData(previous);
+            const target = saved[id];
+            delete saved[id];
+            return Object.assign({}, previous, target, { projects: saved, activeProjectId: id });
+          });
+        }, []);
+
+        const createProject = useCallback(() => {
+          setState((previous) => {
+            const saved = Object.assign({}, previous.projects);
+            saved[previous.activeProjectId] = pickProjectData(previous);
+            const fresh = createProjectData();
+            const order = [fresh.id].concat(previous.projectOrder.filter((id) => id !== fresh.id)).slice(0, 12);
+            const pruned = {};
+            for (const id of order) {
+              if (id !== fresh.id && saved[id]) pruned[id] = saved[id];
+            }
+            return Object.assign({}, previous, fresh, { projects: pruned, activeProjectId: fresh.id, projectOrder: order });
+          });
+          setComposerOpen(false);
           notify(t('toast.reset'));
         }, [notify, t]);
+
+        const deleteProject = useCallback(() => {
+          setState((previous) => {
+            const order = previous.projectOrder.filter((id) => id !== previous.activeProjectId);
+            if (!order.length) {
+              const fresh = createProjectData();
+              return Object.assign({}, previous, fresh, { projects: {}, activeProjectId: fresh.id, projectOrder: [fresh.id] });
+            }
+            const projects = Object.assign({}, previous.projects);
+            const nextId = order[0];
+            const target = projects[nextId] || createProjectData({ id: nextId });
+            delete projects[nextId];
+            return Object.assign({}, previous, target, { projects: projects, activeProjectId: nextId, projectOrder: order });
+          });
+          notify(t('toast.projectDeleted'));
+        }, [notify, t]);
+
+        const exportProject = useCallback(() => {
+          try {
+            const payload = { format: 'dsh-design-studio/project', version: STATE_VERSION, project: pickProjectData(state) };
+            const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = slug(state.projectName || artifact.title) + '.design.json';
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+            notify(t('toast.projectExported'));
+          } catch (error) {
+            notify(t('toast.failed'));
+          }
+        }, [artifact.title, notify, state, t]);
+
+        const importProjectData = useCallback((data) => {
+          if (!data || typeof data !== 'object') throw new Error('invalid project payload');
+          const source = data.project && typeof data.project === 'object' ? data.project : data;
+          setState((previous) => {
+            const project = sanitizeProjectData(Object.assign({}, source, { id: newProjectId() }));
+            const saved = Object.assign({}, previous.projects);
+            saved[previous.activeProjectId] = pickProjectData(previous);
+            const order = [project.id].concat(previous.projectOrder).slice(0, 12);
+            for (const id of Object.keys(saved)) {
+              if (order.indexOf(id) === -1) delete saved[id];
+            }
+            delete saved[project.id];
+            return Object.assign({}, previous, project, { projects: saved, activeProjectId: project.id, projectOrder: order });
+          });
+          notify(t('toast.projectImported'));
+        }, [notify, t]);
+
+        const handleArtboardClick = (event) => {
+          if (!commentMode) return;
+          const rect = event.currentTarget.getBoundingClientRect();
+          if (!rect.width || !rect.height) return;
+          const x = clamp(((event.clientX - rect.left) / rect.width) * 100, 1, 99);
+          const y = clamp(((event.clientY - rect.top) / rect.height) * 100, 1, 99);
+          setCommentDraft({ x: x, y: y, text: '', id: null });
+        };
+
+        const selectComment = (comment) => {
+          setCommentDraft({ x: comment.x, y: comment.y, text: comment.text, id: comment.id });
+        };
+
+        const saveComment = useCallback(() => {
+          if (!commentDraft) return;
+          const text = String(commentDraft.text || '').trim();
+          if (!text) return;
+          const entry = {
+            id: 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
+            x: commentDraft.x,
+            y: commentDraft.y,
+            text: text.slice(0, 500),
+            at: Date.now(),
+          };
+          patch((previous) => ({ comments: (previous.comments || []).concat([entry]) }));
+          setCommentDraft(null);
+          notify(t('toast.commentAdded'));
+        }, [commentDraft, notify, patch, t]);
+
+        const deleteComment = useCallback((id) => {
+          patch((previous) => ({ comments: (previous.comments || []).filter((comment) => comment.id !== id) }));
+          setCommentDraft(null);
+          notify(t('toast.commentDeleted'));
+        }, [notify, patch, t]);
+
+        const importProjectFile = useCallback((event) => {
+          const input = event && event.target;
+          const file = input && input.files && input.files[0];
+          if (input) input.value = '';
+          if (!file) return;
+          file.text()
+            .then((text) => importProjectData(JSON.parse(text)))
+            .catch(() => notify(t('toast.projectImportFailed')));
+        }, [importProjectData, notify, t]);
 
         const selectTemplate = useCallback((templateId) => {
           patch({ template: templateId, importedHtml: '', importedTitle: '' });
@@ -890,10 +1117,15 @@ window.__ModuleLoader__.load({
             JSON.stringify(state.tokens, null, 2),
             '```',
             '',
+            '## ' + t('comments.heading'),
+            (state.comments && state.comments.length
+              ? state.comments.map((comment) => '- ' + comment.text).join('\n')
+              : '—'),
+            '',
             '请用上述 tokens 把该设计实现为可运行的响应式页面，保持字体、颜色、圆角与留白节奏一致。',
           ];
           return lines.join('\n');
-        }, [state.brief, state.styleId, state.template, state.tokens, styleLabel, t, templateLabel]);
+        }, [state.brief, state.comments, state.styleId, state.template, state.tokens, styleLabel, t, templateLabel]);
 
         const openImport = useCallback(() => {
           dialogReturnFocus.current = document.activeElement;
@@ -1017,6 +1249,26 @@ window.__ModuleLoader__.load({
         const accentContrast = contrastRatio(state.tokens.accentText, state.tokens.accent);
 
         const examples = ['ex.landing', 'ex.dashboard', 'ex.mobile', 'ex.pricing'];
+        const compareStyles = engine && compareMode && !state.importedHtml
+          ? [state.styleId]
+            .concat(engine.styles.map((style) => style.id).filter((id) => id !== state.styleId))
+            .slice(0, 3)
+            .map((id) => {
+              const preset = engine.styles.find((style) => style.id === id);
+              return {
+                id: id,
+                label: styleLabel(id),
+                tokens: id === state.styleId ? state.tokens : ensureTokens(preset ? preset.tokens : state.tokens),
+              };
+            })
+          : [];
+        const compareZoom = clamp((canvasWidth ? canvasWidth - 72 : 900) / Math.max(1, device.width * 3 + 48), 0.12, 0.5);
+        const projectItems = (state.projectOrder || [state.activeProjectId]).map((id) => ({
+          id,
+          name: id === state.activeProjectId
+            ? (state.projectName || t('project.untitled'))
+            : ((state.projects && state.projects[id] && state.projects[id].projectName) || t('project.untitled')),
+        }));
 
         return h(React.Fragment, null,
           h('style', null, STYLE_TEXT),
@@ -1061,6 +1313,25 @@ window.__ModuleLoader__.load({
                 'aria-pressed': state.tokens.mode === 'dark' ? 'true' : 'false',
                 onClick: toggleMode,
               }, h(Glyph, { name: state.tokens.mode === 'dark' ? 'sun' : 'moon' })),
+              h('button', {
+                type: 'button',
+                className: 'dsx-toolbtn dsx-compare-toggle',
+                title: t('toolbar.compare'),
+                'aria-label': t('toolbar.compare'),
+                'aria-pressed': compareMode ? 'true' : 'false',
+                onClick: () => setCompareMode((value) => !value),
+              }, h(Glyph, { name: 'columns' })),
+              h('button', {
+                type: 'button',
+                className: 'dsx-toolbtn dsx-comment-toggle',
+                title: t('toolbar.comment'),
+                'aria-label': t('toolbar.comment'),
+                'aria-pressed': commentMode ? 'true' : 'false',
+                onClick: () => {
+                  setCommentMode((value) => !value);
+                  setCommentDraft(null);
+                },
+              }, h(Glyph, { name: 'comment' })),
               h('button', { type: 'button', className: 'dsx-toolbtn dsx-toolbtn-strong', title: t('toolbar.export'), onClick: downloadHtml },
                 h(Glyph, { name: 'download' }),
                 h('span', { className: 'dsx-toolbtn-label' }, t('export.download')))),
@@ -1071,7 +1342,25 @@ window.__ModuleLoader__.load({
                 h('section', { className: 'dsx-section' },
                   h('div', { className: 'dsx-section-title' },
                     h('span', null, t('brief.heading')),
-                    h('button', { type: 'button', className: 'dsx-linkbtn', title: t('project.new'), onClick: handleNewDesign }, t('project.new'))),
+                    h('div', { className: 'dsx-project-actions' },
+                      h('button', { type: 'button', className: 'dsx-linkbtn', title: t('project.new'), onClick: createProject }, t('project.new')),
+                      h('button', { type: 'button', className: 'dsx-linkbtn', title: t('project.export'), onClick: exportProject }, t('project.export')),
+                      h('button', { type: 'button', className: 'dsx-linkbtn', title: t('project.import'), onClick: () => { if (importFileRef.current) importFileRef.current.click(); } }, t('project.import')),
+                      h('button', { type: 'button', className: 'dsx-linkbtn', title: t('project.delete'), onClick: deleteProject }, t('project.delete')))),
+                  h('select', {
+                    className: 'dsx-input dsx-project-select',
+                    value: state.activeProjectId,
+                    'aria-label': t('project.select'),
+                    onChange: (event) => switchProject(event.target.value),
+                  }, projectItems.map((item) => h('option', { key: item.id, value: item.id }, item.name))),
+                  h('input', {
+                    type: 'file',
+                    className: 'dsx-file-input',
+                    accept: '.json,application/json',
+                    ref: importFileRef,
+                    'aria-label': t('project.import'),
+                    onChange: importProjectFile,
+                  }),
                   h('input', {
                     className: 'dsx-input dsx-project-input',
                     value: state.projectName,
@@ -1150,26 +1439,127 @@ window.__ModuleLoader__.load({
                       h('span', { className: 'dsx-history-dot' }),
                       h('span', { className: 'dsx-history-label' }, entry.label || t('history.heading')),
                       h('span', { className: 'dsx-history-time' }, formatTime(entry.at)))))
-                    : h('div', { className: 'dsx-empty-hint' }, t('history.empty')))),
+                    : h('div', { className: 'dsx-empty-hint' }, t('history.empty'))),
+
+                h('section', { className: 'dsx-section' },
+                  h('div', { className: 'dsx-section-title' },
+                    h('span', null, t('comments.heading')),
+                    state.comments.length ? h('span', { className: 'dsx-count' }, String(state.comments.length)) : null),
+                  state.comments.length
+                    ? h('div', { className: 'dsx-comments' },
+                      state.comments.map((comment) => h('div', { key: comment.id, className: 'dsx-comment-row' },
+                        h('button', { type: 'button', className: 'dsx-comment-open', title: comment.text, onClick: () => selectComment(comment) }, comment.text),
+                        h('button', {
+                          type: 'button',
+                          className: 'dsx-comment-delete',
+                          title: t('comments.delete'),
+                          'aria-label': t('comments.delete'),
+                          onClick: () => deleteComment(comment.id),
+                        }, h(Glyph, { name: 'close' })))))
+                    : h('div', { className: 'dsx-empty-hint' }, t('comments.empty')))),
 
               /* Canvas */
               h('main', { className: 'dsx-canvas' },
                 h('div', { className: 'dsx-canvas-scroll', ref: canvasRef },
-                  h('div', { className: 'dsx-artboard-wrap' },
-                    h('div', { className: 'dsx-artboard-label' },
-                      h('span', { className: 'dsx-artboard-name' }, artifact.title),
-                      isSample ? h('span', { className: 'dsx-badge' }, t('canvas.sampleBadge')) : null,
-                      artifact.imported ? h('span', { className: 'dsx-badge' }, t('canvas.importedBadge')) : null,
-                      h('span', { className: 'dsx-artboard-meta' }, t(device.labelKey) + ' ' + device.width)),
-                    h('div', { className: 'dsx-artboard', style: { width: frameWidth + 'px', height: frameHeight + 'px' } },
-                      h('div', { style: { width: device.width + 'px', height: device.height + 'px', transform: 'scale(' + state.zoom + ')', transformOrigin: 'top left' } },
-                        h('iframe', {
-                          className: 'dsx-frame',
-                          title: t('canvas.frameTitle'),
-                          sandbox: '',
-                          srcDoc: artifact.html,
-                          style: { width: device.width + 'px', height: device.height + 'px' },
-                        })))))),
+                  compareStyles.length
+                    ? h('div', { className: 'dsx-compare' },
+                      compareStyles.map((variant) => {
+                        let variantHtml = '';
+                        try {
+                          variantHtml = engine.generate({ brief: state.brief, template: state.template, tokens: variant.tokens }).html;
+                        } catch (error) {
+                          variantHtml = fallbackDocument(String(error && error.message ? error.message : error));
+                        }
+                        const variantActive = variant.id === state.styleId;
+                        const variantWidth = Math.round(device.width * compareZoom);
+                        const variantHeight = Math.round(device.height * compareZoom);
+                        return h('div', { key: variant.id, className: 'dsx-compare-cell' },
+                          h('div', { className: 'dsx-artboard-label' },
+                            h('span', { className: 'dsx-artboard-name' }, variant.label),
+                            variantActive ? h('span', { className: 'dsx-badge' }, t('compare.current')) : null),
+                          h('div', {
+                            className: 'dsx-compare-frame' + (variantActive ? ' dsx-compare-active' : ''),
+                            style: { width: variantWidth + 'px', height: variantHeight + 'px' },
+                          },
+                            h('div', { style: { width: device.width + 'px', height: device.height + 'px', transform: 'scale(' + compareZoom + ')', transformOrigin: 'top left' } },
+                              h('iframe', {
+                                className: 'dsx-frame',
+                                title: variant.label,
+                                sandbox: '',
+                                srcDoc: variantHtml,
+                                style: { width: device.width + 'px', height: device.height + 'px' },
+                              })),
+                            h('button', {
+                              type: 'button',
+                              className: 'dsx-compare-hit',
+                              title: variant.label,
+                              'aria-label': variant.label,
+                              onClick: () => selectStyle(variant.id),
+                            })));
+                      }))
+                    : h('div', { className: 'dsx-artboard-wrap' },
+                      h('div', { className: 'dsx-artboard-label' },
+                        h('span', { className: 'dsx-artboard-name' }, artifact.title),
+                        isSample ? h('span', { className: 'dsx-badge' }, t('canvas.sampleBadge')) : null,
+                        artifact.imported ? h('span', { className: 'dsx-badge' }, t('canvas.importedBadge')) : null,
+                        h('span', { className: 'dsx-artboard-meta' }, t(device.labelKey) + ' ' + device.width)),
+                      h('div', { className: 'dsx-artboard', style: { width: frameWidth + 'px', height: frameHeight + 'px' } },
+                        h('div', { style: { width: device.width + 'px', height: device.height + 'px', transform: 'scale(' + state.zoom + ')', transformOrigin: 'top left' } },
+                          h('iframe', {
+                            className: 'dsx-frame',
+                            title: t('canvas.frameTitle'),
+                            sandbox: '',
+                            srcDoc: artifact.html,
+                            style: { width: device.width + 'px', height: device.height + 'px' },
+                          })),
+                        h('div', {
+                          className: 'dsx-comment-layer' + (commentMode ? ' dsx-comment-mode' : ''),
+                          onClick: handleArtboardClick,
+                        },
+                          state.comments.map((comment) => h('button', {
+                            key: comment.id,
+                            type: 'button',
+                            className: 'dsx-comment-pin' + (commentDraft && commentDraft.id === comment.id ? ' dsx-comment-pin-active' : ''),
+                            style: { left: comment.x + '%', top: comment.y + '%' },
+                            title: comment.text,
+                            'aria-label': comment.text,
+                            onClick: (event) => {
+                              event.stopPropagation();
+                              selectComment(comment);
+                            },
+                          })),
+                          commentDraft
+                            ? h('div', {
+                              className: 'dsx-comment-pop',
+                              style: { left: commentDraft.x + '%', top: commentDraft.y + '%' },
+                              onClick: (event) => event.stopPropagation(),
+                            },
+                              commentDraft.id
+                                ? h(React.Fragment, null,
+                                  h('p', { className: 'dsx-comment-text' }, commentDraft.text),
+                                  h('div', { className: 'dsx-comment-pop-actions' },
+                                    h('button', { type: 'button', className: 'dsx-btn', onClick: () => deleteComment(commentDraft.id) }, t('comments.delete')),
+                                    h('button', { type: 'button', className: 'dsx-btn', onClick: () => setCommentDraft(null) }, t('comments.close'))))
+                                : h(React.Fragment, null,
+                                  h('textarea', {
+                                    className: 'dsx-comment-input',
+                                    value: commentDraft.text,
+                                    placeholder: t('comments.placeholder'),
+                                    autoFocus: true,
+                                    onChange: (event) => {
+                                      const value = event.target.value;
+                                      setCommentDraft((draft) => (draft ? Object.assign({}, draft, { text: value }) : draft));
+                                    },
+                                  }),
+                                  h('div', { className: 'dsx-comment-pop-actions' },
+                                    h('button', { type: 'button', className: 'dsx-btn', onClick: () => setCommentDraft(null) }, t('comments.cancel')),
+                                    h('button', {
+                                      type: 'button',
+                                      className: 'dsx-primary dsx-primary-inline',
+                                      disabled: !String(commentDraft.text || '').trim(),
+                                      onClick: saveComment,
+                                    }, t('comments.add')))))
+                            : null))))),
 
               /* Right column: design system inspector */
               h('aside', { className: 'dsx-right' },
@@ -1364,6 +1754,16 @@ window.__ModuleLoader__.load({
             h('rect', Object.assign({ x: 4, y: 9, width: 16, height: 8, rx: 2 }, stroke)),
             h('path', Object.assign({ d: 'M7 15h10v5H7z' }, stroke)));
           break;
+        case 'columns':
+          path = h(React.Fragment, null,
+            h('rect', Object.assign({ x: 4, y: 4, width: 4.6, height: 16, rx: 1.2 }, stroke)),
+            h('rect', Object.assign({ x: 9.7, y: 4, width: 4.6, height: 16, rx: 1.2 }, stroke)),
+            h('rect', Object.assign({ x: 15.4, y: 4, width: 4.6, height: 16, rx: 1.2 }, stroke)));
+          break;
+        case 'comment':
+          path = h(React.Fragment, null,
+            h('path', Object.assign({ d: 'M20 5H4a1 1 0 00-1 1v9a1 1 0 001 1h4l3 4 3-4h6a1 1 0 001-1V6a1 1 0 00-1-1z' }, stroke)));
+          break;
         case 'sliders':
           path = h(React.Fragment, null,
             h('path', Object.assign({ d: 'M4 7h10M18 7h2M4 17h2M10 17h10' }, stroke)),
@@ -1512,6 +1912,9 @@ window.__ModuleLoader__.load({
       'background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;}',
       '.dsx-input:focus{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:-1px;}',
       '.dsx-project-input{width:100%;height:26px;}',
+      '.dsx-project-select{width:100%;height:26px;}',
+      '.dsx-project-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}',
+      '.dsx-file-input{display:none;}',
       '.dsx-textarea{width:100%;min-height:92px;resize:vertical;padding:9px 10px;border-radius:8px;',
       'border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);',
       'font:inherit;font-size:12.5px;line-height:1.6;}',
@@ -1553,6 +1956,27 @@ window.__ModuleLoader__.load({
       '.dsx-canvas-scroll{flex:1 1 auto;overflow:auto;padding:26px 30px 34px;display:flex;justify-content:flex-start;align-items:flex-start;',
       'background-image:radial-gradient(circle,var(--dsw-alias-border-l1) 1px,transparent 1px);background-size:18px 18px;}',
       '.dsx-artboard-wrap{display:flex;flex-direction:column;gap:8px;flex:0 0 auto;margin:0 auto;}',
+      '.dsx-comment-layer{position:absolute;inset:0;z-index:4;pointer-events:none;}',
+      '.dsx-comment-mode{pointer-events:auto;cursor:crosshair;box-shadow:inset 0 0 0 1px var(--dsw-alias-brand-primary);}',
+      '.dsx-comment-pin{position:absolute;width:18px;height:18px;border-radius:50% 50% 50% 3px;transform:translate(-6px,-18px);border:1px solid var(--dsw-alias-bg-base);background:var(--dsw-alias-state-warn-primary);color:var(--dsw-alias-label-primary-inverted);pointer-events:auto;cursor:pointer;padding:0;box-shadow:var(--dsw-shadow-lv2);}',
+      '.dsx-comment-pin-active{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px;}',
+      '.dsx-comment-pop{position:absolute;z-index:6;width:240px;transform:translate(-12px,14px);display:flex;flex-direction:column;gap:8px;padding:10px;background:var(--dsw-alias-bg-overlay);border:1px solid var(--dsw-alias-border-l1);border-radius:8px;box-shadow:var(--dsw-shadow-lv3);}',
+      '.dsx-comment-input{width:100%;height:70px;resize:vertical;border:1px solid var(--dsw-alias-border-l1);border-radius:6px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;padding:6px 8px;}',
+      '.dsx-comment-input:focus{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:-1px;}',
+      '.dsx-comment-text{margin:0;font-size:12px;line-height:1.5;color:var(--dsw-alias-label-primary);word-break:break-word;}',
+      '.dsx-comment-pop-actions{display:flex;justify-content:flex-end;gap:6px;}',
+      '.dsx-comments{display:flex;flex-direction:column;gap:2px;}',
+      '.dsx-comment-row{display:flex;align-items:center;gap:6px;}',
+      '.dsx-comment-open{flex:1 1 auto;min-width:0;text-align:left;border:0;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11.5px;padding:5px 6px;border-radius:5px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
+      '.dsx-comment-open:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);}',
+      '.dsx-comment-delete{flex:0 0 auto;border:0;background:transparent;color:var(--dsw-alias-label-secondary);padding:4px;border-radius:4px;cursor:pointer;display:inline-flex;}',
+      '.dsx-comment-delete:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-state-error-primary);}',
+      '.dsx-compare{display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap;margin:0 auto;padding-bottom:8px;}',
+      '.dsx-compare-cell{display:flex;flex-direction:column;gap:8px;}',
+      '.dsx-compare-frame{position:relative;overflow:hidden;border-radius:10px;border:1px solid var(--dsw-alias-border-l1);background:#fff;box-shadow:var(--dsw-shadow-lv2);}',
+      '.dsx-compare-active{border-color:var(--dsw-alias-brand-primary);box-shadow:0 0 0 1px var(--dsw-alias-brand-primary),var(--dsw-shadow-lv2);}',
+      '.dsx-compare-hit{position:absolute;inset:0;border:0;background:transparent;cursor:pointer;padding:0;}',
+      '.dsx-compare-hit:hover{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 8%,transparent);}',
       '.dsx-artboard-label{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--dsw-alias-label-secondary);}',
       '.dsx-artboard-name{font-weight:600;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;',
       'white-space:nowrap;max-width:420px;}',

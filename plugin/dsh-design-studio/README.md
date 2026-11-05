@@ -14,6 +14,11 @@ DeepSeek Harness 插件：在左侧栏增加一个「设计工作室」入口，
   全部实时重渲染；并给出文字对比度与按钮对比度检查（AA 提示）。
 - 6 套风格预设（极简 / 杂志编辑 / 暗夜 / 粗野主义 / 马卡龙 / 企业商务）+
   快速优化（更简洁 / 更高级 / 更活泼 / 深色模式 / 浅色模式 / 更疏朗 / 更紧凑 / 更圆润 / 更方正）。
+- **多项目工作区**：项目切换 / 新建 / 删除 / 重命名；项目可导出为 `.design.json` 并重新导入，
+  每个项目独立保存需求、模板、风格、tokens、版本历史、批注与导入的 HTML。
+- **风格对比**：顶栏「对比风格」把当前模板按 3 套风格并排渲染，点击任一画板即应用其风格。
+- **画布批注**：打开批注模式后点击画板任意位置添加批注，批注钉随画板缩放定位，左侧可查看/删除；
+  批注会写进交付说明。
 - 版本历史可回滚；支持下载 / 复制 HTML、复制 design tokens、复制给 Agent 的设计交付说明，
   以及导入外部 HTML 在沙箱画布中预览。
 - 状态保存在浏览器 localStorage，刷新与切换面板不丢失。
@@ -25,7 +30,7 @@ DeepSeek Harness 插件：在左侧栏增加一个「设计工作室」入口，
   「包含…」「with …」等需求从句，避免把整句提示词当成设计标题。
 - 导入弹窗有焦点圈定、Esc 关闭与关闭后焦点还原。
 
-### 浏览器核验工具（v1.2）
+### 浏览器核验工具（v1.3）
 
 Host 半边注册两个 tool，使用**独立的临时 headless Chrome**（不碰用户浏览器资料与 cookie，
 不下载浏览器，临时 profile 用完即删）：
@@ -34,6 +39,7 @@ Host 半边注册两个 tool，使用**独立的临时 headless Chrome**（不�
 |---|---|
 | `design_verify_ui` | 用 `connection.authenticatedUrl()` 取得带鉴权的 Web GUI 地址，打开 `?panel=design-studio`，等待面板渲染后截图并审计，返回 `issues[]` 与 PASS/FAIL。支持 `device`、`theme`（current/dark/light）、`full_page`、`include_shell`，以及 `steps` 交互脚本（click/type/wait/screenshot），可验证“生成设计、打开弹窗、应用 tokens”等真实交互。 |
 | `design_screenshot_html` | 把自包含 HTML（内联字符串或本地 `.html` 文件）在 headless Chrome 中渲染并截图，用来直接查看生成的设计稿。 |
+| `design_projects` | Agent ↔ 面板的项目文件桥：`write` 把项目（名称/需求/模板/风格/tokens/HTML/批注）写入工作区 `.design-studio/projects/*.json`，`list` / `read` 查看已发布项目；用户在面板「导入」即可打开。纯文件交换，不暴露 HTTP 服务。 |
 
 **审计内容**：三列布局是否成立、横向溢出、控件数量、计算色值与对比度、无标注按钮、
 控制台错误，以及**沙箱 iframe 内设计稿本身**的尺寸/溢出/对比度/标题/图片加载
@@ -49,6 +55,7 @@ Host 半边注册两个 tool，使用**独立的临时 headless Chrome**（不�
 - 报告会记录 Chrome 以 `sandboxed` 还是 `relaxed` 运行；可用
   `DSH_DESIGN_CHROME_NO_SANDBOX=never` 禁止 `--no-sandbox` 回退。
 - 截图目录默认保留最近 60 张本工具命名的 PNG，自动清理旧文件。
+- `design_projects` 只读写项目目录内的 JSON，拒绝目录外路径；不监听端口、不上传任何内容。
 
 返回的 PNG 落在工作区 `.design-studio/screenshots/`（可用 `output_dir` 覆盖），
 调用后用内置的 `read_image` 读取图片即可让模型“看到”界面。
@@ -100,6 +107,28 @@ npm test             # 引擎 + 构建产物 + Host 工具自测（最后一项�
 升级已安装的 Host 侧代码（`index.js` / `lib/`）通常需要重启 DSH 才能加载新的模块 generation；
 Client 侧代码刷新页面即可。
 
+## Agent ↔ 面板的项目桥
+
+Agent 可以这样把一份设计交给面板：
+
+```text
+design_projects({
+  action: "write",
+  name: "acme-pricing",
+  project: {
+    projectName: "Acme pricing",
+    brief: "三档定价页，年付切换 + FAQ",
+    template: "pricing",
+    styleId: "enterprise",
+    tokens: { accent: "#1d4ed8", radius: 8 }
+  }
+})
+```
+
+随后在面板项目区点「导入」选择生成的 `.json` 即可加载；反向地，面板「导出」的项目 JSON
+也可以被 Agent 用 `design_projects({ action: "read", file: "..." })` 读取。文件落在
+`<workspace>/.design-studio/projects/`。
+
 ## 已知限制
 
 - 生成的文档在 `sandbox=""` 的 iframe 中渲染：脚本不会执行；导入外部 HTML 时，页面引用的
@@ -107,6 +136,7 @@ Client 侧代码刷新页面即可。
 - 每次调整设计 token 都会重新生成并刷新画布文档，拖动滑杆时会有轻微闪烁。
 - 设计稿内容文案由引擎生成（中英文按需求语言），不是通用大模型自由创作；复杂交互原型请把
   「复制交付说明」交给 Agent 继续实现。
+- Agent ↔ 面板采用文件桥（导出/导入 JSON），不是实时双向同步；实时同步需要额外的受鉴权 HTTP/Remote 通道。
 - 视觉核验截取的是 **Web GUI**（浏览器表面），不是 Electron 原生窗口；字体渲染 / 窗口控件
   可能与桌面壳略有差异。原生窗口级截图需要 macOS Computer Use bundle（需系统权限）。
 - 插件管理器中的图标 / 标题属于渲染态，本仓库未提交截图。
