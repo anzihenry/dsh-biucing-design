@@ -58,6 +58,7 @@ let moduleRecord = null
 const fakeWindow = {
   __ModuleLoader__: { load(record) { moduleRecord = record } },
   localStorage: { getItem() { return null }, setItem() {} },
+  location: { search: '?panel=design-studio' },
 }
 const React = {
   Fragment: Symbol('Fragment'),
@@ -77,6 +78,7 @@ check('the module registers under the package name', () => {
 })
 
 const registrations = []
+const selectedPanels = []
 const dictionaries = new Map()
 const fakeLocale = {
   register(namespace, locale, dictionary) {
@@ -103,6 +105,10 @@ const ctx = {
       return () => {}
     },
   },
+  get(name) {
+    if (name === 'layout') return { selectPanel(panelId) { selectedPanels.push(panelId) } }
+    return undefined
+  },
   locale: fakeLocale,
   effect(callback) {
     const dispose = callback()
@@ -114,6 +120,9 @@ plugin.apply(ctx)
 
 check('the plugin declares the services it uses', () => {
   assert.deepEqual(plugin.inject, ['slots', 'locale'])
+})
+check('the ?panel=design-studio deep link opens the panel', () => {
+  assert.deepEqual(selectedPanels, ['design-studio'])
 })
 check('one sidebar entry and one central panel are registered', () => {
   const sidebar = registrations.find((item) => item.options.name === 'sidebar.panellist')
@@ -163,6 +172,28 @@ const collect = (predicate) => {
   walk(tree, (node) => { if (predicate(node)) found.push(node) })
   return found
 }
+const chainFor = (predicate, node = tree, ancestors = []) => {
+  if (!node || typeof node !== 'object') return null
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      const found = chainFor(predicate, child, ancestors)
+      if (found) return found
+    }
+    return null
+  }
+  const chain = ancestors.concat([node])
+  if (predicate(node)) return chain
+  if (Array.isArray(node.children)) {
+    for (const child of node.children) {
+      const found = chainFor(predicate, child, chain)
+      if (found) return found
+    }
+  } else if (node.children !== undefined) {
+    return chainFor(predicate, node.children, chain)
+  }
+  return null
+}
+const classNameOf = (node) => (node && node.props && typeof node.props.className === 'string' ? node.props.className : '')
 
 check('the panel renders its full layout', () => {
   const frames = collect((node) => node.type === 'iframe')
@@ -174,6 +205,19 @@ check('the panel renders its full layout', () => {
   assert.ok(String(frames[0].props.srcDoc).indexOf('<!doctype html>') === 0, 'preview document missing')
   assert.equal(frames[0].props.sandbox, '', 'preview iframe must stay fully sandboxed')
 })
+check('the three panel columns are siblings inside the flex body (regression: inspector nested outside)', () => {
+  const chain = chainFor((node) => classNameOf(node) === 'dsx-right')
+  assert.ok(chain, 'inspector column is missing')
+  const bodyIndex = chain.findIndex((node) => classNameOf(node) === 'dsx-body')
+  assert.ok(bodyIndex >= 0, 'inspector is not inside .dsx-body: ' + chain.map(classNameOf).join(' > '))
+  assert.equal(classNameOf(chain[chain.length - 1]), 'dsx-right')
+  assert.ok(chain.length > 1 && classNameOf(chain[chain.length - 2]) === 'dsx-body', 'inspector parent should be .dsx-body')
+  const body = chain[bodyIndex]
+  const children = (body.children || []).filter((child) => typeof child.type === 'string')
+  assert.equal(children.length, 3, 'expected three columns, got ' + children.map(classNameOf).join(','))
+  assert.deepEqual(children.map(classNameOf), ['dsx-left', 'dsx-canvas', 'dsx-right'])
+})
+
 check('the artboard follows the selected device and zoom', () => {
   const artboards = collect((node) => node.props && node.props.className === 'dsx-artboard')
   assert.equal(artboards.length, 1)

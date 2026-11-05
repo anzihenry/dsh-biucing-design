@@ -29,6 +29,9 @@ cd dsh-biucing-design
 - 右侧设计系统面板实时改品牌色、字体、字号节奏、留白密度与圆角，并给出对比度检查；
 - 6 套风格预设、快速优化、版本回滚、HTML 下载 / 复制、design tokens 与交付说明导出、外部 HTML 导入预览；
 - 状态保存在浏览器 localStorage。
+- **浏览器核验工具（v1.1）**：`design_verify_ui` / `design_screenshot_html` 用独立临时 headless Chrome
+  截图并审计设计工作室面板或任意自包含设计稿，截图可直接用 `read_image` 查看；真实核验记录见
+  [verify/visual-verification.md](verify/visual-verification.md)。
 
 安装与开发说明见 [plugin/dsh-design-studio/README.md](plugin/dsh-design-studio/README.md)。
 

@@ -582,6 +582,18 @@ window.__ModuleLoader__.load({
 
         const device = DEVICES.find((item) => item.id === state.device) || DEVICES[0];
 
+        useEffect(() => {
+          if (!canvasWidth) return;
+          if (Math.abs(state.zoom - 0.72) > 0.001) return;
+          const available = canvasWidth - 8;
+          if (available <= 0) return;
+          const next = clamp(available / device.width, 0.25, 1);
+          const rounded = Math.round(next * 100) / 100;
+          if (Math.abs(rounded - state.zoom) < 0.001) return;
+          setState((previous) => Object.assign({}, previous, { zoom: rounded }));
+        }, [canvasWidth, device.width, state.zoom]);
+
+
         const artifact = useMemo(() => {
           if (state.importedHtml) {
             return { title: state.importedTitle || t('canvas.importedTitle'), html: state.importedHtml, imported: true };
@@ -994,7 +1006,7 @@ window.__ModuleLoader__.load({
                           sandbox: '',
                           srcDoc: artifact.html,
                           style: { width: device.width + 'px', height: device.height + 'px' },
-                        }))))))),
+                        })))))),
 
               /* Right column: design system inspector */
               h('aside', { className: 'dsx-right' },
@@ -1083,7 +1095,7 @@ window.__ModuleLoader__.load({
                     h('button', { type: 'button', className: 'dsx-btn', onClick: openImport },
                       h(Glyph, { name: 'import' }), h('span', null, t('export.import'))))),
 
-                h('div', { className: 'dsx-about' }, t('about.note'))),
+                h('div', { className: 'dsx-about' }, t('about.note')))),
 
             toast ? h('div', { className: 'dsx-toast', role: 'status' }, toast) : null,
 
@@ -1267,13 +1279,13 @@ window.__ModuleLoader__.load({
     // purpose: the white artboard matte behind the sandboxed design document
     // (artwork surface), and token fallbacks inside generated documents.
     const STYLE_TEXT = [
-      '.dsx-root{position:relative;display:flex;flex-direction:column;height:100%;min-height:440px;overflow:hidden;',
+      '.dsx-root{position:relative;display:flex;flex-direction:column;height:100%;min-height:440px;overflow:hidden;container-type:inline-size;container-name:dsx;',
       'background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font-family:inherit;}',
-      '.dsx-topbar{display:flex;align-items:center;gap:8px;height:52px;padding:0 14px;flex:0 0 auto;',
+      '.dsx-topbar{display:flex;align-items:center;gap:8px;height:52px;padding:0 14px;flex:0 0 auto;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;}',
       'border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-base);}',
-      '.dsx-brand{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;letter-spacing:.01em;}',
+      '.dsx-brand{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;letter-spacing:.01em;flex:0 0 auto;white-space:nowrap;}',
       '.dsx-divider{width:1px;height:18px;background:var(--dsw-alias-border-l1);flex:0 0 auto;}',
-      '.dsx-project-title{font-size:12px;color:var(--dsw-alias-label-secondary);max-width:220px;overflow:hidden;',
+      '.dsx-project-title{font-size:12px;color:var(--dsw-alias-label-secondary);max-width:220px;overflow:hidden;flex:0 1 auto;',
       'text-overflow:ellipsis;white-space:nowrap;}',
       '.dsx-spacer{flex:1 1 auto;min-width:4px;}',
       '.dsx-zoom{font-size:11px;color:var(--dsw-alias-label-secondary);min-width:34px;text-align:center;font-variant-numeric:tabular-nums;}',
@@ -1337,9 +1349,9 @@ window.__ModuleLoader__.load({
       '.dsx-history-time{font-size:10px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;}',
       '.dsx-empty-hint{font-size:11.5px;color:var(--dsw-alias-label-secondary);line-height:1.6;}',
       '.dsx-canvas{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;position:relative;overflow:hidden;}',
-      '.dsx-canvas-scroll{flex:1 1 auto;overflow:auto;padding:26px 30px 34px;display:flex;justify-content:center;align-items:flex-start;',
+      '.dsx-canvas-scroll{flex:1 1 auto;overflow:auto;padding:26px 30px 34px;display:flex;justify-content:flex-start;align-items:flex-start;',
       'background-image:radial-gradient(circle,var(--dsw-alias-border-l1) 1px,transparent 1px);background-size:18px 18px;}',
-      '.dsx-artboard-wrap{display:flex;flex-direction:column;gap:8px;flex:0 0 auto;}',
+      '.dsx-artboard-wrap{display:flex;flex-direction:column;gap:8px;flex:0 0 auto;margin:0 auto;}',
       '.dsx-artboard-label{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--dsw-alias-label-secondary);}',
       '.dsx-artboard-name{font-weight:600;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;',
       'white-space:nowrap;max-width:420px;}',
@@ -1391,9 +1403,11 @@ window.__ModuleLoader__.load({
       'font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;line-height:1.5;}',
       '.dsx-code:focus{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:-1px;}',
       '.dsx-dialog-actions{display:flex;align-items:center;gap:8px;}',
-      '@media (max-width:1180px){.dsx-left{flex-basis:280px;width:280px;}.dsx-right{flex-basis:244px;width:244px;}}',
-      '@media (max-width:980px){.dsx-left{flex-basis:244px;width:244px;}.dsx-right{display:none;}}',
-      '@media (max-width:760px){.dsx-left{display:none;}.dsx-toolbtn-label{display:none;}}',
+      '@container dsx (max-width:1180px){.dsx-left{flex-basis:280px;width:280px;}.dsx-right{flex-basis:244px;width:244px;}}',
+      '@container dsx (max-width:980px){.dsx-left{flex-basis:244px;width:244px;}.dsx-right{display:none;}}',
+      '@container dsx (max-width:900px){.dsx-project-title{display:none;}.dsx-divider{display:none;}}',
+      '@container dsx (max-width:640px){.dsx-brand span{display:none;}.dsx-seg{display:none;}}',
+      '@container dsx (max-width:760px){.dsx-left{display:none;}.dsx-toolbtn-label{display:none;}}',
     ].join('\n');
 
     /* ------------------------------------------------------------------ *
@@ -1425,6 +1439,36 @@ window.__ModuleLoader__.load({
         }
 
         const panel = createDesignPanel(ctx, t);
+
+        // `?panel=design-studio` deep link: one stable URL that opens this
+        // panel directly. Browser tools and humans can share it; the Layout
+        // service may not be ready at module load, so retry once on the next
+        // tick.
+        const openFromDeepLink = () => {
+          let requested = null;
+          try {
+            requested = new URLSearchParams(window.location.search || '').get('panel');
+          } catch (error) {
+            return;
+          }
+          if (requested !== PANEL_ID) return;
+          const select = () => {
+            try {
+              const layout = ctx.get('layout');
+              if (layout && typeof layout.selectPanel === 'function') layout.selectPanel(PANEL_ID);
+            } catch (error) {
+              /* this surface has no panel layout */
+            }
+          };
+          select();
+          try {
+            const timers = [150, 600, 1500].map((delay) => setTimeout(select, delay));
+            ctx.effect(() => () => timers.forEach((timer) => clearTimeout(timer)));
+          } catch (error) {
+            /* timer service unavailable */
+          }
+        };
+        openFromDeepLink();
 
         ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
           name: 'sidebar.panellist',
