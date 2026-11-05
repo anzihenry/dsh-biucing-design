@@ -1955,7 +1955,7 @@ window.__ModuleLoader__.load({
     const STYLE_TEXT = [
       '.dsx-root{position:relative;display:flex;flex-direction:column;height:100%;min-height:440px;overflow:hidden;container-type:inline-size;container-name:dsx;',
       'background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font-family:inherit;}',
-      '.dsx-topbar{display:flex;align-items:center;gap:8px;height:52px;padding:0 14px;flex:0 0 auto;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;}',
+      '.dsx-topbar{display:flex;align-items:center;gap:8px;height:52px;padding:0 14px;flex:0 0 auto;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;',
       'border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-base);}',
       '.dsx-brand{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;letter-spacing:.01em;flex:0 0 auto;white-space:nowrap;}',
       '.dsx-divider{width:1px;height:18px;background:var(--dsw-alias-border-l1);flex:0 0 auto;}',

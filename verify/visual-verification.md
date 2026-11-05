@@ -124,6 +124,35 @@ Host 注册**只读**路由 `/design-studio/projects`，面板项目区「已发
 发布时 Tokens 会做一致性推导：缺少可读的 `accentText` 时按背景亮度选择深/浅文字，
 `muted` / `border` 缺失时从文字与背景混合，避免 Agent 只给品牌色时出现不可读按钮。
 
+## 2.7 v1.4.1：顶栏品牌区回归修复（用户反馈）
+
+现象：面板顶栏的图标与「Design studio」被竖排（图标在上、文字换行），顶部栏布局拥挤。
+
+真实原因不是 flex 设置本身，而是 **STYLE_TEXT 里 `.dsx-topbar` 被拆成两个数组片段时前一
+片多了一个 `}`**，导致浏览器把 `.dsx-brand` 规则整条丢弃：
+
+- `...overflow-y:hidden;}` + 下一片段 `border-bottom:...}` → 浏览器恢复时吞掉了紧随其后的 `.dsx-brand{display:flex;...}`
+- 因此 `.dsx-brand` 计算样式成了 `display:block`、`white-space:normal`，图标和文字自然竖排
+
+修复与防回归：
+
+- 去掉提前闭合的 `}`（`.dsx-topbar` 的两个片段重新合成一条合法规则）
+- `test-built` 增加样式表解析断言：`.dsx-brand{display:flex` 必须存在，且不允许出现
+  “`}` 后紧跟声明”的碎片规则
+- `design_verify_ui` 报告新增 `topbar` / `brand` 诊断（display、flex-direction、nowrap、子元素 rect），
+  以后同类布局回归能直接从审计里看到
+
+修复前（平板 834，品牌图标在上、文字换行）：
+
+![修复前](screenshots/design-studio-topbar-before-fix.png)
+
+修复后（图标与文字同一行，顶栏单行）：
+
+![修复后](screenshots/design-studio-topbar-after-fix.png)
+
+验证：修复后审计输出 `brand: flex/row/nowrap ws=nowrap rect=114x18`，并且对样式表做了逐类检查
+（96 个 `dsx-*` 选择器全部被浏览器解析，127 条规则）。
+
 ## 3. 核验中发现并修复的问题
 
 | 问题 | 证据 | 修复 |

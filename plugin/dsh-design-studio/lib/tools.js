@@ -648,6 +648,14 @@ function formatVerifyReport(report) {
       lines.push('- design inside artboard: unavailable (' + (report.iframeAudit.reason || 'unknown') + ')')
     }
   }
+  if (audit.topbar) {
+    const bar = audit.topbar;
+    lines.push('- topbar: ' + bar.rect.width + 'x' + bar.rect.height + ' (scroll ' + bar.scrollWidth + '/' + bar.clientWidth + ')')
+    if (bar.brand) {
+      const brand = bar.brand;
+      lines.push('- brand: ' + brand.display + '/' + brand.flexDirection + '/' + brand.flexWrap + ' ws=' + brand.whiteSpace + ' rect=' + brand.rect.width + 'x' + brand.rect.height + ' children=' + brand.children.map((child) => child.tag + ':' + child.rect.width + 'x' + child.rect.height + '@' + child.rect.x + ',' + child.rect.y).join(' '))
+    }
+  }
   if (audit.project) {
     lines.push('- project: "' + String(audit.project.active || '') + '" (' + audit.project.options + ' project(s) in the switcher)')
   }

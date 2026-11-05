@@ -195,6 +195,14 @@ const chainFor = (predicate, node = tree, ancestors = []) => {
 }
 const classNameOf = (node) => (node && node.props && typeof node.props.className === 'string' ? node.props.className : '')
 
+check('the panel stylesheet parses cleanly (no premature rule close swallowing selectors)', () => {
+  const styleNode = collect((node) => node.type === 'style')[0]
+  assert.ok(styleNode, 'style element missing')
+  const css = String(styleNode.children[0] || '')
+  assert.ok(css.includes('.dsx-brand{display:flex'), 'brand rule is missing from the parsed stylesheet')
+  assert.ok(!/}\s*(?:[a-z-]+\s*:)/.test(css), 'a declaration follows a closing brace: a split CSS rule was closed too early')
+})
+
 check('the panel renders its full layout', () => {
   const frames = collect((node) => node.type === 'iframe')
   const textareas = collect((node) => node.type === 'textarea')

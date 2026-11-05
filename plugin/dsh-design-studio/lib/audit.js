@@ -68,6 +68,27 @@ ${CONTRAST_HELPERS}
   return {
     panelMounted: Boolean(root),
     title: document.title,
+    topbar: (() => {
+      const bar = document.querySelector('.dsx-topbar');
+      const brand = document.querySelector('.dsx-brand');
+      if (!bar) return null;
+      const brandStyle = brand ? getComputedStyle(brand) : null;
+      const span = brand ? brand.querySelector('span') : null;
+      return {
+        rect: rect(bar),
+        scrollWidth: bar.scrollWidth,
+        clientWidth: bar.clientWidth,
+        brand: brand ? {
+          rect: rect(brand),
+          display: brandStyle.display,
+          flexDirection: brandStyle.flexDirection,
+          flexWrap: brandStyle.flexWrap,
+          whiteSpace: brandStyle.whiteSpace,
+          children: Array.from(brand.children).map((child) => ({ tag: child.tagName, rect: rect(child) })),
+          spanWhiteSpace: span ? getComputedStyle(span).whiteSpace : null,
+        } : null,
+      };
+    })(),
     theme: darkTheme ? 'dark' : 'light',
     viewport: { width: window.innerWidth, height: window.innerHeight, devicePixelRatio: window.devicePixelRatio },
     root: rect(root),
