@@ -1,18 +1,14 @@
 /**
- * The in-page audit expression evaluated through CDP.
+ * In-page audit expressions evaluated through CDP.
  *
- * It is a self-contained IIFE: it reads the Design Studio panel's layout,
- * computed colors and contrast, counts rendered controls, and reports the
- * current theme. The result is JSON-serializable, so it crosses the protocol as
- * a plain value and needs no page-side helper or DOM mutation.
+ * Both are self-contained IIFEs that return JSON-serializable values:
+ *   - AUDIT_EXPRESSION        audits the Design Studio panel's own chrome;
+ *   - DESIGN_AUDIT_EXPRESSION audits the generated design document inside the
+ *     sandboxed artboard iframe (evaluated in an isolated world because the
+ *     page itself cannot read a `sandbox=""` frame).
  */
-export const AUDIT_EXPRESSION = `(() => {
-  const rect = (el) => {
-    if (!el) return null;
-    const box = el.getBoundingClientRect();
-    return { x: Math.round(box.x), y: Math.round(box.y), width: Math.round(box.width), height: Math.round(box.height) };
-  };
-  const css = (el, property) => (el ? getComputedStyle(el).getPropertyValue(property).trim() : '');
+
+const CONTRAST_HELPERS = `
   const parseRgb = (value) => {
     const match = String(value || '').match(/rgba?\\(([^)]+)\\)/);
     if (!match) return null;
@@ -39,6 +35,20 @@ export const AUDIT_EXPRESSION = `(() => {
     const part = (n) => Math.round(n).toString(16).padStart(2, '0');
     return '#' + part(rgb.r) + part(rgb.g) + part(rgb.b);
   };
+  const rect = (el) => {
+    if (!el) return null;
+    const box = el.getBoundingClientRect();
+    return { x: Math.round(box.x), y: Math.round(box.y), width: Math.round(box.width), height: Math.round(box.height) };
+  };
+  const css = (el, property) => (el ? getComputedStyle(el).getPropertyValue(property).trim() : '');
+  const visible = (el) => {
+    const box = el.getBoundingClientRect();
+    return box.width > 0 && box.height > 0;
+  };
+`
+
+export const AUDIT_EXPRESSION = `(() => {
+${CONTRAST_HELPERS}
   const root = document.querySelector('.dsx-root');
   const left = document.querySelector('.dsx-left');
   const canvas = document.querySelector('.dsx-canvas');
@@ -50,6 +60,11 @@ export const AUDIT_EXPRESSION = `(() => {
   const primaryStyle = primary ? getComputedStyle(primary) : null;
   const darkTheme = document.body.hasAttribute('data-ds-dark-theme')
     || document.documentElement.hasAttribute('data-ds-dark-theme');
+  const buttons = Array.from(document.querySelectorAll('.dsx-root button'));
+  const unlabeled = buttons.filter((button) => {
+    const name = (button.getAttribute('aria-label') || '') + ' ' + (button.getAttribute('title') || '') + ' ' + (button.textContent || '');
+    return visible(button) && !name.replace(/\\s+/g, ' ').trim();
+  }).slice(0, 6).map((button) => button.className || button.outerHTML.slice(0, 60));
   return {
     panelMounted: Boolean(root),
     title: document.title,
@@ -75,23 +90,24 @@ export const AUDIT_EXPRESSION = `(() => {
         wrap: child.parentElement ? getComputedStyle(child.parentElement).flexWrap : null,
         direction: child.parentElement ? getComputedStyle(child.parentElement).flexDirection : null,
       })),
-      rightParent: right && right.parentElement ? { cls: right.parentElement.className, wrap: getComputedStyle(right.parentElement).flexWrap } : null,
-      leftParent: left && left.parentElement ? { cls: left.parentElement.className, wrap: getComputedStyle(left.parentElement).flexWrap } : null,
     },
-    sections: Array.from(document.querySelectorAll('.dsx-section')).slice(0, 12).map((section) => {
-      const box = section.getBoundingClientRect();
-      return { title: (section.querySelector('.dsx-section-title') || {}).textContent || '', x: Math.round(box.x), y: Math.round(box.y), width: Math.round(box.width), height: Math.round(box.height) };
-    }),
-    iframe: frame ? { rect: rect(frame), sandbox: frame.getAttribute('sandbox') } : null,
+    iframe: frame ? { rect: rect(frame), sandbox: frame.getAttribute('sandbox'), srcBytes: (frame.getAttribute('srcdoc') || '').length } : null,
     controls: {
-      buttons: document.querySelectorAll('.dsx-root button').length,
+      buttons: buttons.length,
       chips: document.querySelectorAll('.dsx-chip').length,
       historyRows: document.querySelectorAll('.dsx-history-row').length,
       selects: document.querySelectorAll('.dsx-root select').length,
+      textareas: document.querySelectorAll('.dsx-root textarea').length,
+    },
+    a11y: {
+      unlabeledButtons: unlabeled,
+      dialogs: document.querySelectorAll('[role="dialog"]').length,
+      focused: document.activeElement && document.activeElement.tagName ? document.activeElement.tagName : null,
     },
     overflow: {
       documentHorizontal: document.documentElement.scrollWidth > window.innerWidth + 1,
       rootHorizontal: root ? root.scrollWidth > root.clientWidth + 1 : null,
+      rootScrollHeight: root ? root.scrollHeight : null,
     },
     colors: {
       rootBackgroundRaw: rootBackground,
@@ -104,6 +120,63 @@ export const AUDIT_EXPRESSION = `(() => {
       primaryText: primaryStyle ? hex(primaryStyle.color) : null,
       textContrast: contrast(rootText, rootBackground),
       primaryContrast: primaryStyle ? contrast(primaryStyle.color, primaryStyle.backgroundColor) : null,
+    },
+  };
+})()`
+
+export const DESIGN_AUDIT_EXPRESSION = `(() => {
+${CONTRAST_HELPERS}
+  const body = document.body;
+  const bodyStyle = body ? getComputedStyle(body) : null;
+  const htmlStyle = getComputedStyle(document.documentElement);
+  const background = bodyStyle && bodyStyle.backgroundColor !== 'rgba(0, 0, 0, 0)'
+    ? bodyStyle.backgroundColor
+    : htmlStyle.backgroundColor;
+  const text = bodyStyle ? bodyStyle.color : null;
+  const headings = Array.from(document.querySelectorAll('h1, h2, h3')).slice(0, 8).map((heading) => {
+    const style = getComputedStyle(heading);
+    const box = heading.getBoundingClientRect();
+    return {
+      tag: heading.tagName,
+      text: (heading.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 80),
+      fontSize: style.fontSize,
+      fontFamily: style.fontFamily,
+      width: Math.round(box.width),
+    };
+  });
+  const buttons = Array.from(document.querySelectorAll('a, button, input[type="submit"]'));
+  return {
+    viewport: { width: window.innerWidth, height: window.innerHeight },
+    document: {
+      scrollWidth: document.documentElement.scrollWidth,
+      scrollHeight: document.documentElement.scrollHeight,
+      horizontalOverflow: document.documentElement.scrollWidth > window.innerWidth + 1,
+    },
+    typography: {
+      bodyFont: bodyStyle ? bodyStyle.fontFamily : null,
+      bodyFontSize: bodyStyle ? bodyStyle.fontSize : null,
+      headingSamples: headings,
+    },
+    colors: {
+      backgroundRaw: background,
+      background: hex(background),
+      textRaw: text,
+      text: hex(text),
+      textContrast: contrast(text, background),
+    },
+    structure: {
+      sections: document.querySelectorAll('section, main, article, header, footer').length,
+      headings: document.querySelectorAll('h1, h2, h3').length,
+      interactive: buttons.length,
+      images: document.querySelectorAll('img, svg, picture').length,
+      brokenImages: Array.from(document.querySelectorAll('img')).filter((img) => img.complete && img.naturalWidth === 0).length,
+    },
+    a11y: {
+      unnamedInteractive: buttons.filter((element) => {
+        const name = (element.getAttribute('aria-label') || '') + ' ' + (element.getAttribute('title') || '') + ' ' + (element.textContent || '');
+        return !name.replace(/\\s+/g, ' ').trim();
+      }).length,
+      lang: document.documentElement.getAttribute('lang') || null,
     },
   };
 })()`

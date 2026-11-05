@@ -205,6 +205,27 @@ check('the panel renders its full layout', () => {
   assert.ok(String(frames[0].props.srcDoc).indexOf('<!doctype html>') === 0, 'preview document missing')
   assert.equal(frames[0].props.sandbox, '', 'preview iframe must stay fully sandboxed')
 })
+check('verification-era controls are present (drawer, preview/print, token import)', () => {
+  const drawerButtons = collect((node) => node.type === 'button' && classNameOf(node).split(/\s+/).indexOf('dsx-drawer-btn') !== -1)
+  assert.equal(drawerButtons.length, 1, 'narrow-window drawer toggle missing')
+  const textOf = (node) => {
+    const parts = []
+    const walkText = (value) => {
+      if (typeof value === 'string') parts.push(value)
+      else if (Array.isArray(value)) value.forEach(walkText)
+      else if (value && typeof value === 'object') walkText(value.children)
+    }
+    walkText(node.children)
+    return parts.join(' ')
+  }
+  const labels = collect((node) => node.type === 'button' && typeof classNameOf(node) === 'string' && classNameOf(node).indexOf('dsx-btn') >= 0)
+    .map((node) => textOf(node))
+  // The test locale returns dictionary keys, so match the key names here.
+  for (const expected of ['export.preview', 'export.print', 'export.tokens']) {
+    assert.ok(labels.some((label) => label.indexOf(expected) !== -1), 'missing export control: ' + expected)
+  }
+})
+
 check('the three panel columns are siblings inside the flex body (regression: inspector nested outside)', () => {
   const chain = chainFor((node) => classNameOf(node) === 'dsx-right')
   assert.ok(chain, 'inspector column is missing')

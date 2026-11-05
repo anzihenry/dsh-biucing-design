@@ -1,6 +1,6 @@
 {
   "name": "@local/dsh-design-studio",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "type": "module",
   "description": "Design Studio: a left-sidebar design canvas for DeepSeek Harness plus headless-Chrome screenshot/audit tools for visual verification.",
@@ -33,5 +33,13 @@
       "immediately": true,
       "inject": []
     }
-  }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.0",
+    "@deepseek-ai/dsh-tools": ">=0.2.0 <0.3.0"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "author": "anzihenry"
 }

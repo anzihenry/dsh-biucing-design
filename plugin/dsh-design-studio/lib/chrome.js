@@ -5,8 +5,11 @@
  * profile: the user's browser profile, cookies and running windows are never
  * touched. Discovery is deliberately simple and overridable:
  *
- *   DSH_DESIGN_CHROME / CHROME_PATH -> an explicit executable
- *   platform candidates             -> a locally installed Chrome/Chromium/Edge
+ *   DSH_DESIGN_CHROME                -> an explicit browser executable
+ *   DSH_DESIGN_CHROME_NO_SANDBOX     -> "never" / "always" to control the
+ *                                       sandbox-relaxed fallback (default: try
+ *                                       sandboxed, then relaxed)
+ *   CHROME_PATH                      -> fallback executable override
  *
  * Nothing here downloads a browser; a missing browser is a clear tool error.
  */
@@ -39,6 +42,9 @@ const CANDIDATES = {
   ],
 }
 
+/** A local network rule that keeps loopback reachable and drops everything else. */
+const LOOPBACK_ONLY_RULE = 'MAP * ~NOTFOUND, EXCLUDE 127.0.0.1, EXCLUDE localhost, EXCLUDE ::1'
+
 export class ChromeUnavailableError extends Error {
   constructor(message) {
     super(message)
@@ -60,20 +66,23 @@ export function findChromePath(env = process.env) {
   return null
 }
 
+/**
+ * Which sandbox attempts are allowed, in order. `DSH_DESIGN_CHROME_NO_SANDBOX`
+ * lets a deployment forbid or force the relaxed fallback; the default keeps the
+ * full Chrome sandbox first and retries without it only when the launch fails.
+ * @returns {boolean[]} one entry per attempt; `true` means `--no-sandbox`.
+ */
+export function resolveSandboxAttempts(env = process.env) {
+  const raw = String(env.DSH_DESIGN_CHROME_NO_SANDBOX || '').trim().toLowerCase()
+  if (['never', '0', 'false', 'off', 'no'].includes(raw)) return [false]
+  if (['always', '1', 'true', 'on', 'yes'].includes(raw)) return [true]
+  return [false, true]
+}
+
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-/**
- * Launch one isolated headless Chromium and resolve its DevTools endpoint.
- *
- * Chrome's own sandbox can be unavailable inside another sandbox or a CI
- * container; the launch is attempted with the sandbox first and retried with
- * `--no-sandbox` only when the browser fails to expose DevTools. The throwaway
- * profile keeps the browser isolated from the user's browsing state.
- * @param {{ executablePath?: string, launchTimeoutMs?: number, allowNoSandbox?: boolean }} [options]
- * @returns {Promise<{ executable: string, profileDir: string, proc: import('node:child_process').ChildProcess, wsUrl: string }>}
- */
 /**
  * Confirm that a DevTools endpoint actually answers, not merely that Chrome
  * wrote its port file. In some sandboxes Chrome starts, publishes the port and
@@ -120,6 +129,45 @@ function probeDevTools(wsUrl, timeoutMs = 8000) {
   })
 }
 
+function baseArgs(profileDir, options, relaxedSandbox) {
+  const args = [
+    '--headless=new',
+    '--disable-gpu',
+    '--disable-extensions',
+    '--disable-dev-shm-usage',
+    '--disable-breakpad',
+    '--disable-crash-reporter',
+    '--hide-scrollbars',
+    '--mute-audio',
+    '--no-first-run',
+    '--no-default-browser-check',
+    '--no-service-autorun',
+    '--user-data-dir=' + profileDir,
+    '--remote-debugging-port=0',
+  ]
+  if (relaxedSandbox) args.push('--no-sandbox', '--disable-setuid-sandbox')
+  if (options.blockNetwork) args.push('--host-resolver-rules=' + LOOPBACK_ONLY_RULE)
+  args.push('about:blank')
+  return args
+}
+
+/**
+ * Launch one isolated headless Chromium and resolve its DevTools endpoint.
+ * @param {{
+ *   executablePath?: string,
+ *   launchTimeoutMs?: number,
+ *   allowNoSandbox?: boolean,
+ *   blockNetwork?: boolean,
+ * }} [options]
+ * @returns {Promise<{
+ *   executable: string,
+ *   profileDir: string,
+ *   proc: import('node:child_process').ChildProcess,
+ *   wsUrl: string,
+ *   sandboxRelaxed: boolean,
+ *   networkBlocked: boolean,
+ * }>}
+ */
 export async function launchChrome(options = {}) {
   const executable = options.executablePath || findChromePath()
   if (!executable) {
@@ -128,54 +176,43 @@ export async function launchChrome(options = {}) {
     )
   }
   const profileDir = await mkdtemp(join(tmpdir(), 'dsh-design-chrome-'))
-  {
-    const extraArgs = options.allowNoSandbox ? ['--no-sandbox', '--disable-setuid-sandbox'] : []
-    const args = [
-      '--headless=new',
-      ...extraArgs,
-      '--disable-gpu',
-      '--disable-extensions',
-      '--disable-dev-shm-usage',
-      '--disable-breakpad',
-      '--disable-crash-reporter',
-      '--hide-scrollbars',
-      '--mute-audio',
-      '--no-first-run',
-      '--no-default-browser-check',
-      '--no-service-autorun',
-      '--user-data-dir=' + profileDir,
-      '--remote-debugging-port=0',
-      'about:blank',
-    ]
-    const proc = spawn(executable, args, {
-      stdio: 'ignore',
-      detached: false,
-      windowsHide: true,
-      env: Object.assign({}, process.env, { CHROME_HEADLESS: '1' }),
-    })
-    proc.on('error', () => {
-      /* surfaced through the missing endpoint below */
-    })
-    const portFile = join(profileDir, 'DevToolsActivePort')
-    const deadline = Date.now() + (options.launchTimeoutMs || 15000)
-    while (Date.now() < deadline) {
-      try {
-        const lines = (await readFile(portFile, 'utf8')).trim().split('\n')
-        if (lines.length >= 2 && Number(lines[0]) > 0) {
-          const wsUrl = 'ws://127.0.0.1:' + Number(lines[0]) + lines[1]
-          if (await probeDevTools(wsUrl)) {
-            return { executable, profileDir, proc, wsUrl }
+  const relaxedSandbox = Boolean(options.allowNoSandbox)
+  const args = baseArgs(profileDir, options, relaxedSandbox)
+  const proc = spawn(executable, args, {
+    stdio: 'ignore',
+    detached: false,
+    windowsHide: true,
+    env: Object.assign({}, process.env, { CHROME_HEADLESS: '1' }),
+  })
+  proc.on('error', () => {
+    /* surfaced through the missing endpoint below */
+  })
+  const portFile = join(profileDir, 'DevToolsActivePort')
+  const deadline = Date.now() + (options.launchTimeoutMs || 15000)
+  while (Date.now() < deadline) {
+    try {
+      const lines = (await readFile(portFile, 'utf8')).trim().split('\n')
+      if (lines.length >= 2 && Number(lines[0]) > 0) {
+        const wsUrl = 'ws://127.0.0.1:' + Number(lines[0]) + lines[1]
+        if (await probeDevTools(wsUrl)) {
+          return {
+            executable,
+            profileDir,
+            proc,
+            wsUrl,
+            sandboxRelaxed: relaxedSandbox,
+            networkBlocked: Boolean(options.blockNetwork),
           }
-          break
         }
-      } catch (error) {
-        /* DevToolsActivePort not written yet */
+        break
       }
-      if (proc.exitCode !== null) break
-      await delay(100)
+    } catch (error) {
+      /* DevToolsActivePort not written yet */
     }
-    await closeChrome({ proc, profileDir })
+    if (proc.exitCode !== null) break
+    await delay(100)
   }
+  await closeChrome({ proc, profileDir })
   throw new ChromeUnavailableError('Chrome started but did not expose a healthy DevTools endpoint in time.')
 }
 
@@ -201,17 +238,16 @@ export async function closeChrome(session) {
 }
 
 /** Take a Chrome CLI screenshot; the fallback path when no DevTools socket is available. */
-export async function chromeCliScreenshot({ executablePath, url, filePath, width, height }) {
+export async function chromeCliScreenshot({ executablePath, url, filePath, width, height, blockNetwork = false }) {
   const executable = executablePath || findChromePath()
   if (!executable) throw new ChromeUnavailableError('No Chrome/Chromium found. Install Google Chrome or set DSH_DESIGN_CHROME.')
-  const attempts = [[], ['--no-sandbox', '--disable-setuid-sandbox']]
+  const attempts = resolveSandboxAttempts()
   let lastError = null
-  for (const extraArgs of attempts) {
+  for (const relaxed of attempts) {
     const profileDir = await mkdtemp(join(tmpdir(), 'dsh-design-shot-'))
     try {
       const args = [
         '--headless=new',
-        ...extraArgs,
         '--disable-gpu',
         '--hide-scrollbars',
         '--no-first-run',
@@ -222,8 +258,10 @@ export async function chromeCliScreenshot({ executablePath, url, filePath, width
         '--window-size=' + width + ',' + height,
         '--screenshot=' + filePath,
         '--virtual-time-budget=8000',
-        url,
       ]
+      if (relaxed) args.push('--no-sandbox', '--disable-setuid-sandbox')
+      if (blockNetwork) args.push('--host-resolver-rules=' + LOOPBACK_ONLY_RULE)
+      args.push(url)
       await new Promise((resolve, reject) => {
         const proc = spawn(executable, args, { stdio: 'ignore', windowsHide: true })
         proc.on('error', reject)

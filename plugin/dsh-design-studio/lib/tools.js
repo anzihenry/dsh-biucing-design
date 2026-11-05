@@ -6,20 +6,47 @@
  *   - the user's own browser profile and cookies are never touched;
  *   - the DSH Web GUI is opened through `connection.authenticatedUrl()` so the
  *     temporary browser is authorized without the user pasting a token;
- *   - screenshots land in the workspace and their paths are returned, so the
- *     agent can inspect them with the existing `read_image` tool.
+ *   - screenshots default to the panel/document (not the surrounding shell),
+ *     land in the workspace, and their paths are returned so the agent can
+ *     inspect them with the existing `read_image` tool.
+ *
+ * Privacy / safety defaults:
+ *   - `design_verify_ui` crops to the Design Studio panel unless `include_shell`
+ *     is set, so workspace/session titles do not leak into the model context;
+ *   - loopback GUI verification resolves only loopback hosts; screenshotting
+ *     arbitrary HTML blocks remote resolution unless `block_network: false`;
+ *   - `design_screenshot_html` refuses local files outside the session working
+ *     directory unless `allow_outside_workspace: true` is set;
+ *   - the report records whether Chrome ran sandboxed or with the relaxed
+ *     fallback, and the fallback can be forbidden with
+ *     `DSH_DESIGN_CHROME_NO_SANDBOX=never`.
  */
 import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { isAbsolute, join, resolve as resolvePath } from 'node:path'
+import { isAbsolute, join, relative, resolve as resolvePath, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { AUDIT_EXPRESSION } from './audit.js'
-import { CdpClient, capturePng, evaluate, isCdpAvailable, openPage, pngSize, waitFor } from './cdp.js'
-import { chromeCliScreenshot, closeChrome, launchChrome } from './chrome.js'
+import { AUDIT_EXPRESSION, DESIGN_AUDIT_EXPRESSION } from './audit.js'
+import {
+  CdpClient,
+  capturePng,
+  evaluate,
+  evaluateInFrame,
+  evaluateInTarget,
+  findIframeTarget,
+  isCdpAvailable,
+  listFrames,
+  openPage,
+  pngSize,
+  waitFor,
+} from './cdp.js'
+import { chromeCliScreenshot, closeChrome, launchChrome, resolveSandboxAttempts } from './chrome.js'
 
 export const PANEL_ID = 'design-studio'
 export const SCREENSHOT_DIR = '.design-studio/screenshots'
+const MAX_SCREENSHOTS = 60
+const SCREENSHOT_PATTERN = /^(desktop|tablet|mobile|design)-[^/]*\.png$/i
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]'])
 
 const DEVICES = {
   desktop: { width: 1440, height: 900 },
@@ -43,7 +70,7 @@ export function deviceSize(value) {
   return DEVICES[normalizeDevice(value)]
 }
 
-/** Absolute screenshot directory: explicit CLI-style path or `<cwd>/.design-studio/screenshots`. */
+/** Absolute screenshot directory: explicit path or `<cwd>/.design-studio/screenshots`. */
 export function resolveOutputDir(value, cwd) {
   const requested = typeof value === 'string' && value.trim() ? value.trim() : SCREENSHOT_DIR
   return isAbsolute(requested) ? requested : resolvePath(cwd || process.cwd(), requested)
@@ -64,6 +91,22 @@ export function sessionDirectory(ctx, exec) {
     /* fall through to the process directory */
   }
   return process.cwd()
+}
+
+/** True when `target` is the same path as, or below, `directory`. */
+export function isInsideDirectory(directory, target) {
+  const relation = relative(resolvePath(directory), resolvePath(target))
+  return relation === '' || (relation !== '..' && !relation.startsWith('..' + sep) && !isAbsolute(relation))
+}
+
+/** True when the URL's host is loopback (so external DNS can be blocked safely). */
+export function isLoopbackUrl(url) {
+  try {
+    const parsed = new URL(String(url))
+    return LOOPBACK_HOSTS.has(parsed.hostname.toLowerCase())
+  } catch (error) {
+    return false
+  }
 }
 
 /** Add the Design Studio panel deep link to an arbitrary GUI URL. */
@@ -121,6 +164,27 @@ function errorCollector() {
   }
 }
 
+/**
+ * Run one headless-Chrome task, retrying with Chrome's sandbox disabled only
+ * when the sandboxed attempt could not complete. `DSH_DESIGN_CHROME_NO_SANDBOX`
+ * can forbid the fallback entirely.
+ */
+async function runWithChrome(run, options = {}) {
+  let lastError = null
+  for (const allowNoSandbox of resolveSandboxAttempts()) {
+    let browser = null
+    try {
+      browser = await launchChrome({ allowNoSandbox, blockNetwork: options.blockNetwork })
+      return await run(browser)
+    } catch (error) {
+      lastError = error
+    } finally {
+      if (browser) await closeChrome(browser)
+    }
+  }
+  throw lastError || new Error('Headless Chrome could not run.')
+}
+
 async function savePng(directory, label, buffer) {
   await mkdir(directory, { recursive: true })
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
@@ -134,6 +198,35 @@ async function savePng(directory, label, buffer) {
     width: size ? size.width : null,
     height: size ? size.height : null,
     bytes: buffer.length,
+  }
+}
+
+/** Keep screenshot directories bounded without touching files we did not name. */
+async function pruneScreenshots(directory, keep = MAX_SCREENSHOTS) {
+  try {
+    const names = await readdir(directory)
+    const ours = names.filter((name) => SCREENSHOT_PATTERN.test(name))
+    if (ours.length <= keep) return 0
+    const entries = await Promise.all(ours.map(async (name) => {
+      try {
+        return { name, mtime: (await stat(join(directory, name))).mtimeMs }
+      } catch (error) {
+        return { name, mtime: 0 }
+      }
+    }))
+    entries.sort((a, b) => b.mtime - a.mtime)
+    let removed = 0
+    for (const entry of entries.slice(keep)) {
+      try {
+        await rm(join(directory, entry.name), { force: true })
+        removed += 1
+      } catch (error) {
+        /* ignore */
+      }
+    }
+    return removed
+  } catch (error) {
+    return 0
   }
 }
 
@@ -162,27 +255,218 @@ function bindAbort(exec, onAbort) {
   }
 }
 
-/**
- * Run one headless-Chrome task, retrying with Chrome's sandbox disabled only
- * when the sandboxed attempt could not complete. The retry keeps normal hosts
- * on the full sandbox and still works inside containerized/CI DSH hosts where
- * Chrome's own sandbox is unavailable.
- */
-async function runWithChrome(run) {
-  let lastError = null
-  for (const allowNoSandbox of [false, true]) {
-    let browser = null
+/* ------------------------------------------------------------------------- *
+ * Panel capture helpers
+ * ------------------------------------------------------------------------- */
+
+async function panelClip(client, sessionId) {
+  const clip = await evaluate(client, sessionId, `(() => {
+    const root = document.querySelector('.dsx-root');
+    if (!root) return null;
+    const box = root.getBoundingClientRect();
+    return { x: box.x + window.scrollX, y: box.y + window.scrollY, width: box.width, height: box.height };
+  })()`).catch(() => null)
+  if (!clip || !clip.width || !clip.height) return null
+  return clip
+}
+
+/** Temporarily release the panel's internal scroll containers for a long capture. */
+async function expandLayout(client, sessionId) {
+  return evaluate(client, sessionId, `(() => {
+    if (document.getElementById('dsx-verify-expand')) return true;
+    const style = document.createElement('style');
+    style.id = 'dsx-verify-expand';
+    style.textContent = 'html,body{height:auto !important;overflow:visible !important;}' +
+      '.dsx-root{height:auto !important;min-height:900px !important;}' +
+      '.dsx-body{height:auto !important;min-height:0 !important;align-items:stretch !important;}' +
+      '.dsx-left,.dsx-right{overflow:visible !important;height:auto !important;}' +
+      '.dsx-canvas{overflow:visible !important;}' +
+      '.dsx-canvas-scroll{overflow:visible !important;height:auto !important;align-items:flex-start !important;}';
+    document.head.appendChild(style);
+    return true;
+  })()`).catch(() => false)
+}
+
+async function restoreLayout(client, sessionId) {
+  return evaluate(client, sessionId, `(() => {
+    const style = document.getElementById('dsx-verify-expand');
+    if (style) style.remove();
+    return true;
+  })()`).catch(() => false)
+}
+
+async function capturePanel(client, sessionId, outputDir, label, options = {}) {
+  const fullPage = Boolean(options.fullPage)
+  if (fullPage) {
+    await expandLayout(client, sessionId)
+    await delay(250)
+  }
+  try {
+    const clip = options.includeShell ? null : await panelClip(client, sessionId)
+    const buffer = await capturePng(client, sessionId, { fullPage, clip })
+    return savePng(outputDir, label, buffer)
+  } finally {
+    if (fullPage) await restoreLayout(client, sessionId)
+  }
+}
+
+/* ------------------------------------------------------------------------- *
+ * Interaction steps
+ * ------------------------------------------------------------------------- */
+
+function clickBySelectorExpression(selector) {
+  return `(() => {
+    const element = document.querySelector(${JSON.stringify(String(selector))});
+    if (!element) return { clicked: false, reason: 'selector not found' };
+    element.click();
+    return { clicked: true };
+  })()`
+}
+
+function clickByTextExpression(text) {
+  const wanted = String(text || '').replace(/\s+/g, ' ').trim().toLowerCase()
+  return `(() => {
+    const wanted = ${JSON.stringify(wanted)};
+    const normalize = (value) => String(value || '').replace(/\\s+/g, ' ').trim().toLowerCase();
+    const candidates = Array.from(document.querySelectorAll('button, a, [role="button"], [role="menuitem"], [role="tab"], label'));
+    const visible = (element) => {
+      const box = element.getBoundingClientRect();
+      return box.width > 0 && box.height > 0;
+    };
+    const scored = candidates
+      .filter(visible)
+      .map((element) => {
+        const label = normalize((element.getAttribute('aria-label') || '') + ' ' + (element.textContent || '') + ' ' + (element.getAttribute('title') || ''));
+        return { element, label };
+      })
+      .filter((item) => item.label && item.label.indexOf(wanted) !== -1)
+      .sort((a, b) => a.label.length - b.label.length);
+    const target = scored[0];
+    if (!target) return { clicked: false, reason: 'text not found' };
+    target.element.click();
+    return { clicked: true, text: target.label.slice(0, 80) };
+  })()`
+}
+
+function typeIntoExpression(selector, text) {
+  return `(() => {
+    const element = document.querySelector(${JSON.stringify(String(selector))});
+    if (!element) return { typed: false, reason: 'selector not found' };
+    element.focus();
+    const prototype = element instanceof HTMLTextAreaElement
+      ? HTMLTextAreaElement.prototype
+      : HTMLInputElement.prototype;
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, 'value');
+    descriptor.set.call(element, ${JSON.stringify(String(text))});
+    element.dispatchEvent(new Event('input', { bubbles: true }));
+    element.dispatchEvent(new Event('change', { bubbles: true }));
+    return { typed: true };
+  })()`
+}
+
+async function runSteps(client, sessionId, steps, outputDir, options = {}) {
+  const results = []
+  const screenshots = []
+  for (let index = 0; index < steps.length; index += 1) {
+    const step = steps[index] || {}
+    const action = typeof step.action === 'string' ? step.action : ''
+    const result = { index, action }
     try {
-      browser = await launchChrome({ allowNoSandbox })
-      return await run(browser)
+      if (action === 'click') {
+        const expression = step.selector
+          ? clickBySelectorExpression(step.selector)
+          : clickByTextExpression(step.text)
+        const outcome = await evaluate(client, sessionId, expression)
+        result.ok = Boolean(outcome && outcome.clicked)
+        if (outcome && outcome.text) result.text = outcome.text
+        if (!result.ok) result.error = (outcome && outcome.reason) || 'target not found'
+      } else if (action === 'type') {
+        if (!step.selector) throw new Error('type requires a selector')
+        const outcome = await evaluate(client, sessionId, typeIntoExpression(step.selector, step.text == null ? '' : step.text))
+        result.ok = Boolean(outcome && outcome.typed)
+        if (!result.ok) result.error = (outcome && outcome.reason) || 'target not found'
+      } else if (action === 'wait') {
+        const ms = clamp(Number(step.ms) || 300, 0, 5000)
+        await delay(ms)
+        result.ok = true
+        result.ms = ms
+      } else if (action === 'screenshot') {
+        const label = typeof step.label === 'string' && step.label.trim() ? step.label.trim() : 'step-' + (index + 1)
+        const shot = await capturePanel(client, sessionId, outputDir, label, options)
+        screenshots.push(shot)
+        result.ok = true
+        result.screenshot = shot.path
+      } else {
+        result.ok = false
+        result.error = 'unsupported action "' + action + '"'
+      }
     } catch (error) {
-      lastError = error
-    } finally {
-      if (browser) await closeChrome(browser)
+      result.ok = false
+      result.error = String((error && error.message) || error)
+    }
+    results.push(result)
+    await delay(150)
+  }
+  return { results, screenshots }
+}
+
+/* ------------------------------------------------------------------------- *
+ * Verdict computation
+ * ------------------------------------------------------------------------- */
+
+function computeIssues(report) {
+  const issues = []
+  const add = (code, severity, message) => issues.push({ code, severity, message })
+  const audit = report.audit || {}
+  const bodyChildren = audit.dom && Array.isArray(audit.dom.bodyChildren) ? audit.dom.bodyChildren : []
+
+  if (!report.panelMounted) add('panel-not-mounted', 'error', 'The Design Studio panel did not mount in the headless page.')
+  if (report.preparation && report.preparation.mounted === false) add('panel-preparation', 'error', 'Dialogs/deep link did not reach the Design Studio panel.')
+  if (bodyChildren.length && bodyChildren.length !== 3) add('layout-columns', 'error', 'Expected .dsx-left, .dsx-canvas and .dsx-right inside .dsx-body; got ' + bodyChildren.length + '.')
+  if (audit.overflow) {
+    if (audit.overflow.documentHorizontal) add('overflow-document', 'error', 'The page has horizontal overflow.')
+    if (audit.overflow.rootHorizontal) add('overflow-panel', 'error', 'The panel has horizontal overflow.')
+  }
+  if (!audit.iframe) add('artboard-iframe', 'error', 'The artboard iframe is missing.')
+  if (audit.colors) {
+    if (audit.colors.textContrast != null && audit.colors.textContrast < 4.5) {
+      add('contrast-text', 'error', 'Panel text contrast is ' + audit.colors.textContrast + ':1 (AA needs 4.5:1).')
+    }
+    if (audit.colors.primaryContrast != null && audit.colors.primaryContrast < 4.5) {
+      add('contrast-primary', 'error', 'Primary action contrast is ' + audit.colors.primaryContrast + ':1 (AA needs 4.5:1).')
     }
   }
-  throw lastError || new Error('Headless Chrome could not run.')
+  if (Array.isArray(report.consoleErrors) && report.consoleErrors.length) {
+    add('console-errors', 'warn', 'Console captured ' + report.consoleErrors.length + ' error(s).')
+  }
+  const unlabeled = audit.a11y && Array.isArray(audit.a11y.unlabeledButtons) ? audit.a11y.unlabeledButtons : []
+  if (unlabeled.length) add('a11y-labels', 'warn', unlabeled.length + ' visible button(s) have no accessible name.')
+  if (report.steps && Array.isArray(report.steps.results)) {
+    const failed = report.steps.results.filter((step) => !step.ok)
+    if (failed.length) add('steps-failed', 'error', failed.length + ' interaction step(s) failed.')
+  }
+  const iframe = report.iframeAudit
+  if (iframe && iframe.available) {
+    if (iframe.document && iframe.document.horizontalOverflow) add('design-overflow', 'error', 'The generated design overflows horizontally inside the artboard.')
+    if (iframe.colors && iframe.colors.textContrast != null && iframe.colors.textContrast < 4.5) {
+      add('design-contrast', 'warn', 'Generated design text contrast is ' + iframe.colors.textContrast + ':1.')
+    }
+    if (iframe.structure && iframe.structure.brokenImages) add('design-images', 'warn', iframe.structure.brokenImages + ' image(s) failed to load in the design.')
+    if (iframe.a11y && iframe.a11y.unnamedInteractive) add('design-a11y', 'warn', iframe.a11y.unnamedInteractive + ' interactive element(s) in the design have no accessible name.')
+  }
+  return issues
 }
+
+function formatIssueList(issues) {
+  if (!issues.length) return ['- result: PASS (no issues found)']
+  const lines = ['- result: ' + (issues.some((issue) => issue.severity === 'error') ? 'FAIL' : 'PASS (warnings only)') + ' (' + issues.length + ' issue(s))']
+  for (const issue of issues) lines.push('  - [' + issue.severity + '] ' + issue.code + ': ' + issue.message)
+  return lines
+}
+
+/* ------------------------------------------------------------------------- *
+ * design_verify_ui
+ * ------------------------------------------------------------------------- */
 
 /**
  * Page preparation for a fresh headless profile: dismiss a first-run notice
@@ -192,7 +476,7 @@ async function runWithChrome(run) {
  */
 const PREPARE_EXPRESSION = `(() => {
   const result = { panelPresent: Boolean(document.querySelector('.dsx-root')), dismissed: [], clicked: false };
-  const normalize = (value) => String(value || '').replace(/\s+/g, ' ').trim();
+  const normalize = (value) => String(value || '').replace(/\\s+/g, ' ').trim();
   const visible = (element) => {
     const box = element.getBoundingClientRect();
     return box.width > 0 && box.height > 0;
@@ -214,7 +498,7 @@ const PREPARE_EXPRESSION = `(() => {
   }
   if (!result.panelPresent) {
     const candidates = all
-      .filter((element) => visible(element) && /design\s*studio|设计工作室/i.test(textOf(element)))
+      .filter((element) => visible(element) && /design\\s*studio|设计工作室/i.test(textOf(element)))
       .map((element) => ({ element, length: textOf(element).length }))
       .sort((a, b) => a.length - b.length);
     const candidate = candidates[0];
@@ -233,12 +517,6 @@ const PREPARE_EXPRESSION = `(() => {
   return result;
 })()`
 
-/**
- * Dismiss dialogs and open the panel; returns diagnostics for the report.
- * The deep link normally selects the panel, but a fresh browser profile shows a
- * first-run notice and the authenticated URL redirect can drop the query, so UI
- * preparation is the reliable path.
- */
 async function preparePanel(client, sessionId) {
   const steps = []
   for (let attempt = 0; attempt < 12; attempt += 1) {
@@ -255,18 +533,43 @@ async function preparePanel(client, sessionId) {
   return { mounted: false, steps }
 }
 
-/* ------------------------------------------------------------------------- *
- * design_verify_ui
- * ------------------------------------------------------------------------- */
+/** Audit the generated design inside the sandboxed artboard iframe. */
+export async function auditArtboard(client, sessionId) {
+  const errors = []
+  // Sandboxed srcdoc iframes are site-isolated, so they usually appear as an
+  // out-of-process `iframe` target rather than a child in the page frame tree.
+  try {
+    const iframeTarget = await findIframeTarget(client)
+    if (iframeTarget) {
+      const value = await evaluateInTarget(client, iframeTarget.targetId, DESIGN_AUDIT_EXPRESSION)
+      return Object.assign({ available: true, via: 'iframe-target', frameUrl: iframeTarget.url || null }, value || {})
+    }
+  } catch (error) {
+    errors.push(String((error && error.message) || error))
+  }
+  try {
+    const frames = await listFrames(client, sessionId)
+    const child = frames.find((frame) => frame.parentId && frame.url === 'about:srcdoc')
+      || frames.find((frame) => frame.parentId && frame.url.indexOf('about:') === 0)
+      || frames.find((frame) => frame.parentId)
+    if (!child) return { available: false, reason: errors[0] || 'no artboard frame found' }
+    const value = await evaluateInFrame(client, sessionId, child.id, DESIGN_AUDIT_EXPRESSION)
+    return Object.assign({ available: true, via: 'frame-tree', frameUrl: child.url || null }, value || {})
+  } catch (error) {
+    errors.push(String((error && error.message) || error))
+  }
+  return { available: false, reason: errors.join(' | ') || 'artboard audit unavailable' }
+}
 
 function formatVerifyReport(report) {
   const lines = []
   lines.push('Design Studio UI verification')
-  lines.push('- ok: ' + (report.ok ? 'yes' : 'no'))
+  const issues = Array.isArray(report.issues) ? report.issues : []
+  lines.push.apply(lines, formatIssueList(issues))
   lines.push('- gui: ' + report.guiHost + ' (headless Chrome, isolated profile)')
+  lines.push('- browser: sandbox ' + (report.sandbox || 'unknown') + ', network ' + (report.network || 'unknown') + ', capture ' + (report.capture || 'panel'))
   const viewport = report.viewport || {}
   lines.push('- device: ' + (report.device || 'desktop') + ' ' + (viewport.width || '?') + 'x' + (viewport.height || '?'))
-  lines.push('- panel mounted: ' + (report.panelMounted ? 'yes' : 'NO — deep link or client module may not be live yet'))
   if (report.pageUrl) {
     lines.push('- page: ' + report.pageUrl + ' (deep link kept panel param: ' + (report.pageQueryKeptPanelParam ? 'yes' : 'no') + ')')
   }
@@ -295,28 +598,28 @@ function formatVerifyReport(report) {
   if (audit.columns) {
     const describe = (part) => (part ? 'x=' + part.x + ' ' + part.width + 'x' + part.height : 'absent')
     lines.push('- columns: left ' + describe(audit.columns.left) + ', canvas ' + describe(audit.columns.canvas) + ', inspector ' + describe(audit.columns.right))
-    if (audit.body) lines.push('- body: display ' + audit.body.display + ' / ' + audit.body.flexDirection + ' / wrap ' + audit.body.flexWrap + ' / width ' + audit.body.width)
   }
   const bodyChildren = audit.dom && Array.isArray(audit.dom.bodyChildren) ? audit.dom.bodyChildren : []
-  const layoutBroken = !report.panelMounted || bodyChildren.length !== 3
   if (audit.dom) {
-    lines.push('- layout: ' + (layoutBroken ? 'BROKEN' : 'ok') + ' (body children: ' + bodyChildren.map((child) => child.tag + '.' + child.cls).join(', ') + ')')
-    if (layoutBroken) {
-      lines.push('- dom: bodyCount ' + audit.dom.bodyCount + ', left ' + audit.dom.leftCount + ', right ' + audit.dom.rightCount)
-      lines.push('- body children: ' + bodyChildren.map((child) => child.tag + '.' + child.cls + ' @' + (child.rect ? child.rect.x + ',' + child.rect.y : '?') + ' wrap=' + child.wrap).join(' | '))
-      if (Array.isArray(audit.sections) && audit.sections.length) {
-        lines.push('- sections: ' + audit.sections.map((section) => (section.title || '?').trim() + ' @' + section.x + ',' + section.y + ' ' + section.width + 'x' + section.height).join(' | '))
-      }
+    lines.push('- layout: ' + (bodyChildren.length === 3 ? 'ok' : 'BROKEN') + ' (body children: ' + bodyChildren.map((child) => child.tag + '.' + child.cls).join(', ') + ')')
+  }
+  if (audit.iframe) {
+    lines.push('- artboard iframe: present, sandbox="' + String(audit.iframe.sandbox) + '", ' + (audit.iframe.rect ? audit.iframe.rect.width + 'x' + audit.iframe.rect.height : 'unmeasured'))
+  }
+  if (report.iframeAudit) {
+    if (report.iframeAudit.available) {
+      const design = report.iframeAudit
+      const contrast = design.colors && design.colors.textContrast != null ? design.colors.textContrast + ':1' : '?'
+      lines.push('- design inside artboard: ' + (design.document ? design.document.scrollWidth + 'x' + design.document.scrollHeight : '?') +
+        ', overflow ' + (design.document && design.document.horizontalOverflow ? 'YES' : 'no') +
+        ', text contrast ' + contrast +
+        ', headings ' + (design.typography && design.typography.headingSamples ? design.typography.headingSamples.length : 0))
+    } else {
+      lines.push('- design inside artboard: unavailable (' + (report.iframeAudit.reason || 'unknown') + ')')
     }
   }
   if (audit.controls) {
     lines.push('- controls: ' + audit.controls.chips + ' chips, ' + audit.controls.buttons + ' buttons, ' + audit.controls.historyRows + ' version rows')
-  }
-  if (audit.iframe && audit.iframe.rect) {
-    lines.push('- artboard iframe: present, sandbox="' + String(audit.iframe.sandbox) + '", ' + audit.iframe.rect.width + 'x' + audit.iframe.rect.height)
-  }
-  if (audit.overflow) {
-    lines.push('- horizontal overflow: document ' + (audit.overflow.documentHorizontal ? 'YES' : 'no') + ', panel ' + (audit.overflow.rootHorizontal ? 'YES' : 'no'))
   }
   const colors = audit.colors || {}
   if (colors.rootBackground || colors.rootText) {
@@ -326,6 +629,9 @@ function formatVerifyReport(report) {
     lines.push('- primary action: background ' + (colors.primaryBackground || '?') + ', label ' + (colors.primaryText || '?') + ', contrast ' + (colors.primaryContrast == null ? '?' : colors.primaryContrast + ':1'))
   }
   lines.push('- theme captured: ' + (audit.theme || 'unknown') + (report.requestedTheme ? ' + ' + report.requestedTheme : '') + (report.themeSwitchApplied === false ? ' (theme switch did not change the palette)' : ''))
+  if (report.steps && Array.isArray(report.steps.results) && report.steps.results.length) {
+    lines.push('- interaction steps: ' + report.steps.results.map((step) => (step.ok ? 'ok' : 'FAIL') + ' ' + step.action + (step.text ? ' "' + step.text + '"' : '')).join(', '))
+  }
   if (report.consoleErrors && report.consoleErrors.length) {
     lines.push('- console errors:')
     for (const message of report.consoleErrors) lines.push('  - ' + message)
@@ -341,7 +647,7 @@ export function designVerifyUiTool(ctx) {
   return {
     name: 'design_verify_ui',
     description:
-      'Screenshot and audit the Design Studio panel in the DSH Web GUI. Launches an isolated headless Chrome, opens the authenticated Web GUI with the ?panel=design-studio deep link, waits for the panel to render, captures PNG screenshots for the requested device and theme, and runs a layout/contrast/interaction audit. The returned screenshot paths can be inspected with read_image. Use this after changing the Design Studio plugin UI.',
+      'Screenshot and audit the Design Studio panel in the DSH Web GUI. Launches an isolated headless Chrome, opens the authenticated Web GUI with the ?panel=design-studio deep link, waits for the panel, optionally runs interaction steps, captures PNG screenshots (panel-cropped by default), audits layout/contrast/console/AX and the generated design inside the artboard iframe, and returns actionable issues. The returned screenshot paths can be inspected with read_image.',
     parameters: {
       type: 'object',
       properties: {
@@ -357,7 +663,28 @@ export function designVerifyUiTool(ctx) {
         },
         full_page: {
           type: 'boolean',
-          description: 'Capture the full document height instead of the viewport. Defaults to false.',
+          description: 'Expand the panel scroll containers and capture the full document height. Defaults to false.',
+        },
+        include_shell: {
+          type: 'boolean',
+          description: 'Capture the whole DSH shell instead of cropping to the Design Studio panel. Off by default so workspace/session titles do not leak into the screenshot.',
+        },
+        steps: {
+          type: 'array',
+          maxItems: 12,
+          description: 'Optional interaction steps executed before the final audit, e.g. click a template chip, type a brief, or take a labeled screenshot.',
+          items: {
+            type: 'object',
+            properties: {
+              action: { type: 'string', enum: ['click', 'type', 'wait', 'screenshot'] },
+              selector: { type: 'string', description: 'CSS selector for click/type.' },
+              text: { type: 'string', description: 'Visible text to click (when selector is omitted) or text to type.' },
+              label: { type: 'string', description: 'Screenshot label for action="screenshot".' },
+              ms: { type: 'number', description: 'Wait duration for action="wait".' },
+            },
+            required: ['action'],
+            additionalProperties: false,
+          },
         },
         output_dir: {
           type: 'string',
@@ -370,36 +697,45 @@ export function designVerifyUiTool(ctx) {
       schema: { type: 'object', additionalProperties: true },
       render: (args, value) => [{ type: 'text', text: formatVerifyReport(value || {}) }],
     },
-    timeoutMs: 180000,
+    timeoutMs: 240000,
     async execute(args, exec) {
       const input = args && typeof args === 'object' ? args : {}
       const device = normalizeDevice(input.device)
       const viewport = deviceSize(device)
       const requestedTheme = input.theme === 'dark' || input.theme === 'light' ? input.theme : null
       const fullPage = input.full_page === true
+      const includeShell = input.include_shell === true
+      const steps = Array.isArray(input.steps) ? input.steps.slice(0, 12) : []
       const cwd = sessionDirectory(ctx, exec)
       const outputDir = resolveOutputDir(input.output_dir, cwd)
       const baseUrl = authenticatedGuiUrl(ctx)
+      const blockNetwork = isLoopbackUrl(baseUrl)
       const report = {
         tool: 'design_verify_ui',
         ok: false,
         guiHost: safeOrigin(baseUrl),
         device,
         viewport,
+        capture: includeShell ? 'shell' : 'panel',
+        network: blockNetwork ? 'loopback-only' : 'open',
         screenshots: [],
         consoleErrors: [],
       }
 
       if (!isCdpAvailable()) {
         const file = join(outputDir, 'desktop-' + Date.now().toString(36) + '.png')
-        await chromeCliScreenshot({ url: panelUrl(baseUrl), filePath: file, width: viewport.width, height: viewport.height })
+        await chromeCliScreenshot({ url: panelUrl(baseUrl), filePath: file, width: viewport.width, height: viewport.height, blockNetwork })
         report.ok = true
+        report.sandbox = 'cli-fallback'
         report.screenshots.push({ label: 'fallback-screenshot', path: file, width: null, height: null, bytes: 0 })
-        report.note = 'CDP unavailable: captured a Chrome CLI screenshot without layout audit. Call read_image on the path.'
+        report.issues = [{ code: 'cdp-unavailable', severity: 'warn', message: 'CDP is unavailable; captured a CLI screenshot without audit.' }]
+        report.note = 'Call read_image on the screenshot path.'
+        await pruneScreenshots(outputDir)
         return report
       }
 
       return await runWithChrome(async (browser) => {
+        report.sandbox = browser.sandboxRelaxed ? 'relaxed' : 'sandboxed'
         const client = await CdpClient.connect(browser.wsUrl)
         const releaseAbort = bindAbort(exec, () => {
           closeChrome(browser).catch(() => {})
@@ -437,8 +773,19 @@ export function designVerifyUiTool(ctx) {
           report.audit = audit
           report.panelMounted = Boolean(mounted) && Boolean(audit && audit.panelMounted)
           report.pageUrl = await evaluate(client, sessionId, "location.origin + location.pathname")
+          report.iframeAudit = await auditArtboard(client, sessionId)
+
           const detectedTheme = audit && audit.theme ? audit.theme : 'current'
-          report.screenshots.push(await savePng(outputDir, device + '-' + detectedTheme, await capturePng(client, sessionId, { fullPage })))
+          report.screenshots.push(await capturePanel(client, sessionId, outputDir, device + '-' + detectedTheme, { fullPage, includeShell }))
+
+          if (steps.length) {
+            const outcome = await runSteps(client, sessionId, steps, outputDir, { fullPage, includeShell })
+            report.steps = outcome
+            for (const shot of outcome.screenshots) report.screenshots.push(shot)
+            report.auditAfterSteps = await evaluate(client, sessionId, AUDIT_EXPRESSION).catch(() => null)
+            report.iframeAuditAfterSteps = await auditArtboard(client, sessionId)
+          }
+
           if (requestedTheme && requestedTheme !== detectedTheme) {
             const expression = requestedTheme === 'dark'
               ? "(() => { document.body.setAttribute('data-ds-dark-theme', ''); return true; })()"
@@ -451,13 +798,17 @@ export function designVerifyUiTool(ctx) {
             report.themeSwitchApplied = Boolean(switched) && Boolean(secondAudit) && Boolean(audit)
               && Boolean(audit.colors && secondAudit.colors)
               && audit.colors.rootBackground !== secondAudit.colors.rootBackground
-            report.screenshots.push(await savePng(outputDir, device + '-' + requestedTheme, await capturePng(client, sessionId, { fullPage })))
+            report.screenshots.push(await capturePanel(client, sessionId, outputDir, device + '-' + requestedTheme, { fullPage, includeShell }))
           } else if (requestedTheme) {
             report.requestedTheme = requestedTheme
             report.themeSwitchApplied = true
           }
+
           report.consoleErrors = collector.errors
+          report.issues = computeIssues(report)
+          report.passed = !report.issues.some((issue) => issue.severity === 'error')
           report.ok = true
+          await pruneScreenshots(outputDir)
           return report
         } finally {
           releaseAbort()
@@ -467,7 +818,7 @@ export function designVerifyUiTool(ctx) {
             /* ignore */
           }
         }
-      })
+      }, { blockNetwork })
     },
   }
 }
@@ -477,8 +828,11 @@ export function designVerifyUiTool(ctx) {
  * ------------------------------------------------------------------------- */
 
 function formatScreenshotReport(report) {
-  const lines = ['Design screenshot', '- ok: ' + (report.ok ? 'yes' : 'no')]
+  const lines = ['Design screenshot']
+  const issues = Array.isArray(report.issues) ? report.issues : []
+  lines.push.apply(lines, formatIssueList(issues))
   lines.push('- source: ' + (report.source || 'unknown'))
+  lines.push('- browser: sandbox ' + (report.sandbox || 'unknown') + ', network ' + (report.network || 'unknown'))
   lines.push('- viewport: ' + (report.width || '?') + 'x' + (report.height || '?') + (report.full_page ? ' (full page)' : ''))
   for (const shot of report.screenshots || []) {
     lines.push('- ' + shot.label + ': ' + shot.path + ' (' + (shot.width || '?') + 'x' + (shot.height || '?') + ', ' + Math.round(shot.bytes / 1024) + ' KB)')
@@ -492,15 +846,17 @@ export function designScreenshotHtmlTool(ctx) {
   return {
     name: 'design_screenshot_html',
     description:
-      'Render a self-contained HTML design in headless Chrome and save PNG screenshots to the workspace. Provide exactly one of `html` (the complete document) or `file_path` (a local .html file). Use it to visually check a generated design artifact, then inspect the returned paths with read_image. Nothing is uploaded and the temporary browser profile is discarded.',
+      'Render a self-contained HTML design in headless Chrome and save PNG screenshots to the workspace. Provide exactly one of `html` (the complete document) or `file_path` (a local .html file inside the session working directory). Remote resources are blocked by default (`block_network: false` opts out). Use it to visually check a generated design artifact, then inspect the returned paths with read_image.',
     parameters: {
       type: 'object',
       properties: {
         html: { type: 'string', description: 'A complete self-contained HTML document to render.' },
-        file_path: { type: 'string', description: 'Path to a local HTML file (absolute, or relative to the session working directory).' },
+        file_path: { type: 'string', description: 'Path to a local HTML file (absolute or session-relative); must stay inside the session working directory unless allow_outside_workspace is true.' },
         width: { type: 'number', description: 'Viewport width in CSS pixels. Defaults to 1280.' },
         height: { type: 'number', description: 'Viewport height in CSS pixels. Defaults to 900.' },
         full_page: { type: 'boolean', description: 'Capture the full document height. Defaults to false.' },
+        block_network: { type: 'boolean', description: 'Block non-loopback DNS resolution while rendering. Defaults to true; pass false to load external images/fonts.' },
+        allow_outside_workspace: { type: 'boolean', description: 'Allow file_path outside the session working directory. Defaults to false.' },
         output_dir: {
           type: 'string',
           description: 'Screenshot directory. Defaults to .design-studio/screenshots inside the session working directory.',
@@ -512,7 +868,7 @@ export function designScreenshotHtmlTool(ctx) {
       schema: { type: 'object', additionalProperties: true },
       render: (args, value) => [{ type: 'text', text: formatScreenshotReport(value || {}) }],
     },
-    timeoutMs: 120000,
+    timeoutMs: 180000,
     async execute(args, exec) {
       const input = args && typeof args === 'object' ? args : {}
       const inlineHtml = typeof input.html === 'string' ? input.html : ''
@@ -525,7 +881,18 @@ export function designScreenshotHtmlTool(ctx) {
       const width = clamp(Math.round(Number(input.width) || 1280), 240, 3840)
       const height = clamp(Math.round(Number(input.height) || 900), 240, 2160)
       const fullPage = input.full_page === true
-      const report = { tool: 'design_screenshot_html', ok: false, width, height, full_page: fullPage, screenshots: [] }
+      const blockNetwork = input.block_network !== false
+      const allowOutside = input.allow_outside_workspace === true
+      const report = {
+        tool: 'design_screenshot_html',
+        ok: false,
+        width,
+        height,
+        full_page: fullPage,
+        network: blockNetwork ? 'loopback-only' : 'open',
+        screenshots: [],
+        issues: [],
+      }
       let tempDir = null
       let targetFile = requestedPath
 
@@ -538,20 +905,26 @@ export function designScreenshotHtmlTool(ctx) {
         } else {
           if (!isAbsolute(targetFile)) targetFile = resolvePath(cwd, targetFile)
           report.source = targetFile
+          if (!allowOutside && !isInsideDirectory(cwd, targetFile)) {
+            throw new Error('file_path must stay inside the session working directory (pass allow_outside_workspace: true to override): ' + targetFile)
+          }
         }
         if (!existsSync(targetFile)) throw new Error('HTML file not found: ' + targetFile)
         const fileUrl = pathToFileURL(targetFile).toString()
 
         if (!isCdpAvailable()) {
           const file = join(outputDir, 'design-' + Date.now().toString(36) + '.png')
-          await chromeCliScreenshot({ url: fileUrl, filePath: file, width, height })
+          await chromeCliScreenshot({ url: fileUrl, filePath: file, width, height, blockNetwork })
+          report.sandbox = 'cli-fallback'
           report.screenshots.push({ label: 'fallback-screenshot', path: file, width: null, height: null, bytes: 0 })
           report.ok = true
           report.note = 'CDP unavailable: captured a Chrome CLI screenshot. Call read_image on the path.'
+          await pruneScreenshots(outputDir)
           return report
         }
 
         return await runWithChrome(async (browser) => {
+          report.sandbox = browser.sandboxRelaxed ? 'relaxed' : 'sandboxed'
           const client = await CdpClient.connect(browser.wsUrl)
           const releaseAbort = bindAbort(exec, () => {
             closeChrome(browser).catch(() => {})
@@ -563,6 +936,7 @@ export function designScreenshotHtmlTool(ctx) {
             await delay(300)
             report.screenshots.push(await savePng(outputDir, 'design', await capturePng(client, sessionId, { fullPage })))
             report.ok = true
+            await pruneScreenshots(outputDir)
             return report
           } finally {
             releaseAbort()
@@ -572,7 +946,7 @@ export function designScreenshotHtmlTool(ctx) {
               /* ignore */
             }
           }
-        })
+        }, { blockNetwork })
       } finally {
         if (tempDir) {
           try {

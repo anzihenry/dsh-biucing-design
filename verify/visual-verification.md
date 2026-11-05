@@ -38,6 +38,34 @@
 
 ![设计稿](screenshots/design-artifact-editorial-fullpage.png)
 
+## 2.4 v1.2：交互脚本、裁剪与面板 UX（本轮新增）
+
+工具升级为「可自动验收」：`design_verify_ui` 支持 `steps`（click / type / wait / screenshot），
+默认把截图裁剪到 `.dsx-root`（不再包含左侧工作区/会话名），并输出 `issues[]` + PASS/FAIL，
+同时通过 CDP OOPIF target 审计沙箱 artboard 里的设计稿。
+
+真实交互验收一（输入需求 → 生成设计；面板裁剪 1160×900）：
+
+![生成设计后的面板](screenshots/design-studio-after-generate-dashboard.png)
+
+- 步骤：`type .dsx-textarea` → `click .dsx-primary` → `wait 800` → `screenshot`
+- 结果：PASS；模板自动切到 Dashboard、风格 Nocturne，`design inside artboard: 1280x2080, overflow no, text contrast 17.03:1`。
+
+真实交互验收二（导入 tokens → 应用；Panel 裁剪）：
+
+![应用 tokens 后](screenshots/design-studio-tokens-applied.png)
+
+- 步骤：`click "Import tokens"` → `type` JSON `{"accent":"#e11d48","radius":18}` → `click "Apply tokens"`
+- 结果：PASS；inspector 显示 Accent `#e11d48`、圆角 18px，画布同步更新，对比度仍为 AA。
+
+真实交互验收三（窄窗口抽屉）：
+
+![窄窗口抽屉](screenshots/design-studio-mobile-drawer.png)
+
+- 390×844 视口下点击顶栏抽屉按钮，需求/模板/风格以覆盖层打开；通过 `steps` 自动截图验证。
+
+另外本轮的隐私修复可直接从截图尺寸确认：旧截图 1440×900（含 DSH 侧栏），新截图 1160×900（仅面板）。
+
 ## 3. 核验中发现并修复的问题
 
 | 问题 | 证据 | 修复 |
@@ -55,6 +83,12 @@
 ```text
 design_verify_ui({ device: "desktop", theme: "light" })
 design_verify_ui({ device: "mobile" })
+design_verify_ui({ device: "desktop", steps: [
+  { action: "type", selector: ".dsx-textarea", text: "一个营收仪表盘，深色风格" },
+  { action: "click", selector: ".dsx-primary" },
+  { action: "wait", ms: 800 },
+  { action: "screenshot", label: "after-generate" }
+]})
 design_screenshot_html({ file_path: ".design-studio/probe/editorial-landing.html", width: 1440, full_page: true })
 ```
 

@@ -223,6 +223,74 @@ export async function evaluate(client, sessionId, expression) {
   return result && result.result ? result.result.value : undefined
 }
 
+/** Evaluate inside an explicit execution context (e.g. an isolated world). */
+export async function evaluateInContext(client, contextId, expression) {
+  const result = await client.send('Runtime.evaluate', {
+    expression,
+    awaitPromise: true,
+    returnByValue: true,
+    contextId,
+  })
+  if (result && result.exceptionDetails) {
+    const detail = result.exceptionDetails
+    throw new Error('Page evaluation failed: ' + ((detail.exception && detail.exception.description) || detail.text || 'unknown error'))
+  }
+  return result && result.result ? result.result.value : undefined
+}
+
+/** Flatten the page frame tree into `{ id, url, parentId }` records. */
+export async function listFrames(client, sessionId) {
+  const tree = await client.send('Page.getFrameTree', {}, sessionId)
+  const frames = []
+  const walk = (node) => {
+    if (!node || !node.frame) return
+    frames.push({ id: node.frame.id, url: node.frame.url || '', parentId: node.frame.parentId || null })
+    for (const child of node.childFrames || []) walk(child)
+  }
+  walk(tree && tree.frameTree)
+  return frames
+}
+
+/** Find the out-of-process iframe target (sandboxed `srcdoc` frames become one). */
+export async function findIframeTarget(client) {
+  const result = await client.send('Target.getTargets')
+  const targets = result && Array.isArray(result.targetInfos) ? result.targetInfos : []
+  const iframes = targets.filter((target) => target.type === 'iframe')
+  return iframes.find((target) => String(target.url || '').indexOf('about:srcdoc') === 0)
+    || iframes.find((target) => String(target.url || '').indexOf('about:') === 0)
+    || iframes[0]
+    || null
+}
+
+/** Evaluate inside an attached target (an OOPIF iframe) and detach again. */
+export async function evaluateInTarget(client, targetId, expression) {
+  const attached = await client.send('Target.attachToTarget', { targetId, flatten: true })
+  const sessionId = attached.sessionId
+  try {
+    await client.send('Runtime.enable', {}, sessionId).catch(() => {})
+    return await evaluate(client, sessionId, expression)
+  } finally {
+    try {
+      await client.send('Target.detachFromTarget', { sessionId })
+    } catch (error) {
+      /* the target may already be gone */
+    }
+  }
+}
+
+/**
+ * Evaluate an expression inside one child frame by giving it an isolated world.
+ * Works for sandboxed `srcdoc` frames whose origin the page itself cannot read.
+ */
+export async function evaluateInFrame(client, sessionId, frameId, expression) {
+  const world = await client.send('Page.createIsolatedWorld', {
+    frameId,
+    worldName: 'design-studio-audit',
+    grantUniveralAccess: false,
+  }, sessionId)
+  return evaluateInContext(client, world.executionContextId, expression)
+}
+
 /** Poll an expression until it is truthy; resolves its value or null on timeout. */
 export async function waitFor(client, sessionId, expression, timeoutMs = 15000, intervalMs = 150) {
   const deadline = Date.now() + timeoutMs
@@ -243,8 +311,16 @@ export async function waitFor(client, sessionId, expression, timeoutMs = 15000, 
  * the whole document, not just the viewport, is captured.
  */
 export async function capturePng(client, sessionId, options = {}) {
-  const params = { format: 'png', fromSurface: true, captureBeyondViewport: Boolean(options.fullPage) }
-  if (options.fullPage) {
+  const params = { format: 'png', fromSurface: true, captureBeyondViewport: Boolean(options.fullPage || options.clip) }
+  if (options.clip) {
+    params.clip = {
+      x: Math.max(0, Math.round(options.clip.x)),
+      y: Math.max(0, Math.round(options.clip.y)),
+      width: Math.max(1, Math.ceil(options.clip.width)),
+      height: Math.max(1, Math.ceil(options.clip.height)),
+      scale: 1,
+    }
+  } else if (options.fullPage) {
     const metrics = await client.send('Page.getLayoutMetrics', {}, sessionId)
     const size = metrics.cssContentSize || metrics.contentSize
     params.clip = { x: 0, y: 0, width: Math.ceil(size.width), height: Math.ceil(size.height), scale: 1 }

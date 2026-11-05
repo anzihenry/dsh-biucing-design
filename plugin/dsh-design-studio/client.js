@@ -241,10 +241,16 @@ const TYPE_PHRASE =
   /^(?:a|an|the)?\s*(?:landing\s+page|home\s*page|homepage|website|web\s*site|web\s*page|page|portfolio(?:\s+(?:site|website|page))?|dashboard|admin\s+panel|analytics\s+dashboard|analytics|mobile\s+(?:app|application)(?:\s+onboarding)?|app(?:lication)?(?:\s+onboarding)?|onboarding(?:\s+flow)?|pricing\s+page|pricing|price\s+page|poster|cover\s+design|one[-\s]?pager|one[-\s]?page(?:\s+document)?|form|sign\s*-?\s*up\s+form|application\s+form|survey|questionnaire|product\s+page|brand\s+page|menu)\s*(?:for|about|of|to\s+promote|promoting|showcasing|featuring|covering|on)\s+/i;
 
 const MOOD_PREFIX =
-  /^(?:minimal(?:ist(?:ic)?)?|dark\s+mode|dark|bold|editorial|pastel|enterprise|brutalist|elegant|clean|simple|modern|sleek|airy|soft|friendly|极简|简约|简洁|素雅|暗色|夜间|深色|粗野|马卡龙|柔和|可爱|企业|专业|商务|优雅|大胆)(?:风格|感)?(?:的)?\s+/i;
+  /^(?:minimal(?:ist(?:ic)?)?|dark\s+mode|dark|bold|editorial|pastel|enterprise|brutalist|elegant|clean|simple|modern|sleek|airy|soft|friendly|极简|简约|简洁|素雅|暗色|夜间|深色|粗野|马卡龙|柔和|可爱|企业|专业|商务|优雅|大胆|克制|高级|精致|现代化|科技感|清新|清爽|温暖|复古|未来感|低调|奢华|大气)(?:风格|感)?(?:的)?\s+/i;
 
 function subjectOf(lead) {
   let s = String(lead || '').trim();
+  // Keep the subject phrase, not the requirements that follow it: briefs like
+  // "一个营收仪表盘，深色风格，包含 KPI 卡片" should title as "营收", not echo
+  // the whole instruction. Split off descriptive clauses before stripping the
+  // template/mood words below.
+  s = s.split(/\s*(?:包含|包括|带有|配有|以及|并且|并提供|支持|用于|用来)\s*|[，,；;]/u)[0].trim();
+  s = s.split(/\s+(?:with|including|featuring|containing|covering|that|which|plus)\s+/i)[0].trim();
   for (let pass = 0; pass < 4; pass += 1) {
     const before = s;
     s = s.replace(/^(?:a|an|the)\s+/i, '').replace(MOOD_PREFIX, '').trim();
@@ -255,7 +261,7 @@ function subjectOf(lead) {
   if (/[\u3400-\u9fff]/.test(s)) {
     const stripped = s
       .replace(
-        /(?:设计|制作|生成|创建|一个|一份|一张|官网|首页|落地页|网站|仪表盘|后台|移动应用|移动端|应用|价格页|定价页|价格|定价|套餐|海报|封面|单页文档|单页|文档|表单|调查问卷|问卷|调查|页面|风格|感|的|请|帮我)/gu,
+        /(?:设计|制作|生成|创建|一个|一份|一张|官网|首页|落地页|网站|仪表盘|后台|移动应用|移动端|应用|价格页|定价页|价格|定价|套餐|海报|封面|单页文档|单页|文档|表单|调查问卷|问卷|调查|页面|风格|感|的|请|帮我|面向|针对|关于|为了|给|克制|高级|精致|现代化|科技感|清新|清爽|温暖|复古|未来感|低调|奢华|大气)/gu,
         ''
       )
       .trim();
@@ -287,7 +293,7 @@ function deriveLead(brief, fallback) {
 function deriveTitle(brief, fallback) {
   const lead = deriveLead(brief, '');
   if (!lead) return fallback;
-  const subject = subjectOf(lead) || lead;
+  const subject = subjectOf(lead);
   return truncateText(capitalize(subject), 48) || fallback;
 }
 
@@ -1630,6 +1636,17 @@ function createDesignEngine() {
         'export.copyTokens': 'Copy tokens',
         'export.copyHandoff': 'Copy handoff brief',
         'export.import': 'Import HTML',
+        'export.preview': 'Open preview',
+        'export.print': 'Print / PDF',
+        'export.tokens': 'Import tokens',
+        'tokens.title': 'Import design tokens',
+        'tokens.hint': 'Paste a tokens JSON object (or CSS custom properties) to apply it to the current design. Example: {"accent":"#7c5cff","radius":12}.',
+        'tokens.apply': 'Apply tokens',
+        'tokens.cancel': 'Cancel',
+        'toast.tokensImported': 'Tokens applied',
+        'toast.tokensInvalid': 'Could not parse tokens',
+        'toast.popupBlocked': 'The browser blocked the preview window',
+        'drawer.toggle': 'Show brief',
         'import.title': 'Import HTML',
         'import.hint': 'Paste a self-contained HTML document to preview it on the canvas. Scripts stay disabled inside the sandbox; external images or fonts the document references may still load.',
         'import.apply': 'Show on canvas',
@@ -1725,6 +1742,17 @@ function createDesignEngine() {
         'export.copyTokens': '复制 tokens',
         'export.copyHandoff': '复制交付说明',
         'export.import': '导入 HTML',
+        'export.preview': '在新标签预览',
+        'export.print': '打印 / PDF',
+        'export.tokens': '导入 tokens',
+        'tokens.title': '导入设计 tokens',
+        'tokens.hint': '粘贴 tokens JSON（或 CSS 自定义属性）应用到当前设计。例如：{"accent":"#7c5cff","radius":12}。',
+        'tokens.apply': '应用 tokens',
+        'tokens.cancel': '取消',
+        'toast.tokensImported': '已应用 tokens',
+        'toast.tokensInvalid': '无法解析 tokens',
+        'toast.popupBlocked': '浏览器拦截了预览窗口',
+        'drawer.toggle': '显示需求栏',
         'import.title': '导入 HTML',
         'import.hint': '粘贴一个自包含的 HTML 文档即可在画布预览。沙箱内不会执行脚本；文档引用的外部图片或字体会被加载。',
         'import.apply': '在画布中显示',
@@ -2012,7 +2040,11 @@ function createDesignEngine() {
         const [toast, setToast] = useState(null);
         const [dialog, setDialog] = useState(null);
         const [importDraft, setImportDraft] = useState('');
+        const [tokenDraft, setTokenDraft] = useState('');
+        const [composerOpen, setComposerOpen] = useState(false);
         const [canvasWidth, setCanvasWidth] = useState(0);
+        const [renderTokens, setRenderTokens] = useState(state.tokens);
+        const dialogReturnFocus = useRef(null);
         const toastTimer = useRef(null);
         const canvasRef = useRef(null);
         const stateRef = useRef(state);
@@ -2057,12 +2089,27 @@ function createDesignEngine() {
 
         useEffect(() => {
           if (!dialog) return undefined;
+          const previous = dialogReturnFocus.current;
           const onKeyDown = (event) => {
             if (event.key === 'Escape') setDialog(null);
           };
           document.addEventListener('keydown', onKeyDown);
-          return () => document.removeEventListener('keydown', onKeyDown);
+          return () => {
+            document.removeEventListener('keydown', onKeyDown);
+            try {
+              if (previous && typeof previous.focus === 'function') previous.focus();
+            } catch (error) {
+              /* the opener may have unmounted */
+            }
+          };
         }, [dialog]);
+
+        // Debounce the iframe document refresh so dragging a token slider does
+        // not reload the artboard on every input event.
+        useEffect(() => {
+          const timer = setTimeout(() => setRenderTokens(state.tokens), 90);
+          return () => clearTimeout(timer);
+        }, [state.tokens]);
 
         const notify = useCallback((message) => {
           setToast(message);
@@ -2112,13 +2159,13 @@ function createDesignEngine() {
             return { title: t('panel.title'), html: fallbackDocument(t('engine.missing')), imported: false };
           }
           try {
-            const output = engine.generate({ brief: state.brief, template: state.template, tokens: state.tokens });
+            const output = engine.generate({ brief: state.brief, template: state.template, tokens: renderTokens });
             return { title: output.title || t('project.untitled'), html: output.html, imported: false };
           } catch (error) {
             const message = error && error.message ? error.message : String(error);
             return { title: t('panel.title'), html: fallbackDocument(message), imported: false };
           }
-        }, [state.brief, state.template, state.tokens, state.importedHtml, state.importedTitle, t]);
+        }, [state.brief, state.template, renderTokens, state.importedHtml, state.importedTitle, t]);
 
         const generateFrom = useCallback((rawBrief) => {
           const brief = String(rawBrief == null ? '' : rawBrief).trim();
@@ -2313,6 +2360,34 @@ function createDesignEngine() {
           }
         }, [artifact, notify, state.projectName, t]);
 
+        // Open the standalone design in a new tab (blob URL, no network), or
+        // open it and trigger the browser's print dialog for a PDF.
+        const openDesign = useCallback((mode) => {
+          try {
+            const blob = new Blob([artifact.html], { type: 'text/html;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const printMode = mode === 'print';
+            const opened = printMode ? window.open(url, '_blank') : window.open(url, '_blank', 'noopener');
+            if (printMode) {
+              if (!opened) {
+                notify(t('toast.popupBlocked'));
+                return;
+              }
+              setTimeout(() => {
+                try {
+                  opened.focus();
+                  opened.print();
+                } catch (error) {
+                  /* the opener closed the tab or the browser refused focus */
+                }
+              }, 900);
+            }
+            setTimeout(() => URL.revokeObjectURL(url), 60000);
+          } catch (error) {
+            notify(t('toast.failed'));
+          }
+        }, [artifact, notify, t]);
+
         const buildHandoff = useCallback(() => {
           const lines = [
             '# ' + t('export.copyHandoff'),
@@ -2337,6 +2412,7 @@ function createDesignEngine() {
         }, [state.brief, state.styleId, state.template, state.tokens, styleLabel, t, templateLabel]);
 
         const openImport = useCallback(() => {
+          dialogReturnFocus.current = document.activeElement;
           setImportDraft(state.importedHtml || '');
           setDialog('import');
         }, [state.importedHtml]);
@@ -2353,6 +2429,91 @@ function createDesignEngine() {
           patch({ importedHtml: '', importedTitle: '' });
           setDialog(null);
         }, [patch]);
+
+        const openTokensImport = useCallback(() => {
+          dialogReturnFocus.current = document.activeElement;
+          setTokenDraft(JSON.stringify(state.tokens, null, 2));
+          setDialog('tokens');
+        }, [state.tokens]);
+
+        const TOKEN_ALIASES = {
+          accent: 'accent', brand: 'accent', primary: 'accent',
+          'accent-text': 'accentText', accenttext: 'accentText',
+          bg: 'bg', background: 'bg',
+          surface: 'surface', 'surface-alt': 'surfaceAlt', surfacealt: 'surfaceAlt',
+          text: 'text', foreground: 'text',
+          muted: 'muted', border: 'border', radius: 'radius',
+          density: 'density', scale: 'scale',
+          'font-display': 'fontDisplay', fontdisplay: 'fontDisplay',
+          'font-body': 'fontBody', fontbody: 'fontBody',
+          mode: 'mode',
+        };
+
+        const parseTokensDraft = (raw) => {
+          const source = Object.assign({}, state.tokens);
+          let parsed = null;
+          try {
+            parsed = JSON.parse(raw);
+          } catch (error) {
+            parsed = null;
+          }
+          if (parsed && typeof parsed === 'object') {
+            const nested = parsed.tokens && typeof parsed.tokens === 'object' ? parsed.tokens : parsed;
+            for (const key of Object.keys(nested)) {
+              const target = TOKEN_ALIASES[String(key).toLowerCase()] || TOKEN_ALIASES[String(key)];
+              if (target && nested[key] !== undefined) source[target] = nested[key];
+            }
+            return source;
+          }
+          let found = 0;
+          const pattern = /--([a-zA-Z0-9-]+)\s*:\s*([^;\n]+);/g;
+          let match = pattern.exec(raw);
+          while (match) {
+            const target = TOKEN_ALIASES[match[1].toLowerCase()];
+            if (target) {
+              let value = match[2].trim();
+              if (target === 'radius' || target === 'density' || target === 'scale' || target === 'mode') {
+                // keep numbers/words as-is; ensureTokens validates them
+                if (target === 'radius') value = Number(value.replace(/px$/i, ''));
+              }
+              source[target] = value;
+              found += 1;
+            }
+            match = pattern.exec(raw);
+          }
+          if (!found) throw new Error('no tokens found');
+          return source;
+        };
+
+        const applyTokensImport = useCallback(() => {
+          const raw = tokenDraft.trim();
+          if (!raw) return;
+          try {
+            const merged = ensureTokens(parseTokensDraft(raw));
+            patch({ tokens: withDerived(merged) });
+            setDialog(null);
+            notify(t('toast.tokensImported'));
+          } catch (error) {
+            notify(t('toast.tokensInvalid'));
+          }
+        }, [notify, patch, t, tokenDraft]);
+
+        const trapDialogFocus = (event) => {
+          if (event.key !== 'Tab') return;
+          const container = event.currentTarget;
+          const nodes = Array.from(container.querySelectorAll('button, textarea, input, select, a[href]'))
+            .filter((element) => !element.disabled && element.offsetParent !== null);
+          if (!nodes.length) return;
+          const first = nodes[0];
+          const last = nodes[nodes.length - 1];
+          if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last.focus();
+          } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first.focus();
+          }
+        };
 
         const zoomPercent = Math.round(state.zoom * 100);
         const frameWidth = Math.round(device.width * state.zoom);
@@ -2378,6 +2539,14 @@ function createDesignEngine() {
           h('div', { className: 'dsx-root' },
             /* Top bar */
             h('header', { className: 'dsx-topbar' },
+              h('button', {
+                type: 'button',
+                className: 'dsx-toolbtn dsx-drawer-btn',
+                title: t('drawer.toggle'),
+                'aria-label': t('drawer.toggle'),
+                'aria-expanded': composerOpen ? 'true' : 'false',
+                onClick: () => setComposerOpen((open) => !open),
+              }, h(DesignStudioMark, { size: 16 })),
               h('div', { className: 'dsx-brand' },
                 h(DesignStudioMark, { size: 18 }),
                 h('span', null, t('panel.title'))),
@@ -2414,7 +2583,7 @@ function createDesignEngine() {
 
             h('div', { className: 'dsx-body' },
               /* Left column: brief, direction, versions */
-              h('aside', { className: 'dsx-left' },
+              h('aside', { className: 'dsx-left' + (composerOpen ? ' dsx-left-open' : '') },
                 h('section', { className: 'dsx-section' },
                   h('div', { className: 'dsx-section-title' },
                     h('span', null, t('brief.heading')),
@@ -2603,35 +2772,56 @@ function createDesignEngine() {
                     h('button', { type: 'button', className: 'dsx-btn', onClick: () => copyText(buildHandoff(), t('toast.copied')) },
                       h(Glyph, { name: 'copy' }), h('span', null, t('export.copyHandoff'))),
                     h('button', { type: 'button', className: 'dsx-btn', onClick: openImport },
-                      h(Glyph, { name: 'import' }), h('span', null, t('export.import'))))),
+                      h(Glyph, { name: 'import' }), h('span', null, t('export.import'))),
+                    h('button', { type: 'button', className: 'dsx-btn', onClick: () => openDesign('preview') },
+                      h(Glyph, { name: 'external' }), h('span', null, t('export.preview'))),
+                    h('button', { type: 'button', className: 'dsx-btn', onClick: () => openDesign('print') },
+                      h(Glyph, { name: 'printer' }), h('span', null, t('export.print'))),
+                    h('button', { type: 'button', className: 'dsx-btn', onClick: openTokensImport },
+                      h(Glyph, { name: 'sliders' }), h('span', null, t('export.tokens'))))),
 
                 h('div', { className: 'dsx-about' }, t('about.note')))),
 
+            composerOpen ? h('div', { className: 'dsx-drawer-backdrop', onClick: () => setComposerOpen(false) }) : null,
+
             toast ? h('div', { className: 'dsx-toast', role: 'status' }, toast) : null,
 
-            dialog === 'import' ? h('div', {
+            dialog === 'import' || dialog === 'tokens' ? h('div', {
               className: 'dsx-dialog-backdrop',
               onMouseDown: (event) => { if (event.target === event.currentTarget) setDialog(null); },
             },
-            h('div', { className: 'dsx-dialog', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('import.title') },
-              h('div', { className: 'dsx-dialog-title' }, t('import.title')),
-              h('p', { className: 'dsx-dialog-hint' }, t('import.hint')),
+            h('div', {
+              className: 'dsx-dialog',
+              role: 'dialog',
+              'aria-modal': 'true',
+              'aria-label': dialog === 'import' ? t('import.title') : t('tokens.title'),
+              onKeyDown: trapDialogFocus,
+            },
+              h('div', { className: 'dsx-dialog-title' }, dialog === 'import' ? t('import.title') : t('tokens.title')),
+              h('p', { className: 'dsx-dialog-hint' }, dialog === 'import' ? t('import.hint') : t('tokens.hint')),
               h('textarea', {
                 className: 'dsx-code',
-                value: importDraft,
-                placeholder: '<!doctype html>\n<html>…</html>',
+                value: dialog === 'import' ? importDraft : tokenDraft,
+                placeholder: dialog === 'import' ? '<!doctype html>\n<html>…</html>' : '{"accent":"#7c5cff","radius":12}',
                 spellCheck: false,
                 autoFocus: true,
-                onChange: (event) => setImportDraft(event.target.value),
+                onChange: (event) => {
+                  if (dialog === 'import') setImportDraft(event.target.value);
+                  else setTokenDraft(event.target.value);
+                },
               }),
               h('div', { className: 'dsx-dialog-actions' },
-                state.importedHtml
+                dialog === 'import' && state.importedHtml
                   ? h('button', { type: 'button', className: 'dsx-btn', onClick: restoreGenerated }, t('import.restore'))
                   : null,
                 h('div', { className: 'dsx-spacer' }),
-                h('button', { type: 'button', className: 'dsx-btn', onClick: () => setDialog(null) }, t('import.cancel')),
-                h('button', { type: 'button', className: 'dsx-primary dsx-primary-inline', disabled: !importDraft.trim(), onClick: applyImport },
-                  h('span', null, t('import.apply')))))
+                h('button', { type: 'button', className: 'dsx-btn', onClick: () => setDialog(null) }, dialog === 'import' ? t('import.cancel') : t('tokens.cancel')),
+                h('button', {
+                  type: 'button',
+                  className: 'dsx-primary dsx-primary-inline',
+                  disabled: dialog === 'import' ? !importDraft.trim() : !tokenDraft.trim(),
+                  onClick: dialog === 'import' ? applyImport : applyTokensImport,
+                }, h('span', null, dialog === 'import' ? t('import.apply') : t('tokens.apply')))))
               ) : null
           ));
       };
@@ -2678,6 +2868,23 @@ function createDesignEngine() {
           break;
         case 'plus':
           path = h('path', Object.assign({ d: 'M12 5.5v13M5.5 12h13' }, stroke));
+          break;
+        case 'external':
+          path = h(React.Fragment, null,
+            h('path', Object.assign({ d: 'M14 4h6v6M20 4l-8.5 8.5' }, stroke)),
+            h('path', Object.assign({ d: 'M18 14v5a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 014 19V8.5A1.5 1.5 0 015.5 7H10' }, stroke)));
+          break;
+        case 'printer':
+          path = h(React.Fragment, null,
+            h('path', Object.assign({ d: 'M7 9V4h10v5' }, stroke)),
+            h('rect', Object.assign({ x: 4, y: 9, width: 16, height: 8, rx: 2 }, stroke)),
+            h('path', Object.assign({ d: 'M7 15h10v5H7z' }, stroke)));
+          break;
+        case 'sliders':
+          path = h(React.Fragment, null,
+            h('path', Object.assign({ d: 'M4 7h10M18 7h2M4 17h2M10 17h10' }, stroke)),
+            h('circle', Object.assign({ cx: 16, cy: 7, r: 2 }, stroke)),
+            h('circle', Object.assign({ cx: 8, cy: 17, r: 2 }, stroke)));
           break;
         case 'minus':
           path = h('path', Object.assign({ d: 'M5.5 12h13' }, stroke));
@@ -2899,6 +3106,8 @@ function createDesignEngine() {
       '.dsx-btn:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px;}',
       '.dsx-btn-block{width:100%;}',
       '.dsx-about{padding:12px 14px 18px;font-size:10.5px;line-height:1.6;color:var(--dsw-alias-label-secondary);}',
+      '.dsx-drawer-btn{display:none !important;}',
+      '.dsx-drawer-backdrop{display:none;}',
       '.dsx-toast{position:absolute;left:50%;bottom:20px;transform:translateX(-50%);max-width:80%;',
       'background:var(--dsw-alias-bg-overlay);border:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-primary);',
       'padding:7px 14px;border-radius:999px;font-size:12px;box-shadow:var(--dsw-shadow-lv2);z-index:20;}',
@@ -2917,7 +3126,7 @@ function createDesignEngine() {
       '@container dsx (max-width:980px){.dsx-left{flex-basis:244px;width:244px;}.dsx-right{display:none;}}',
       '@container dsx (max-width:900px){.dsx-project-title{display:none;}.dsx-divider{display:none;}}',
       '@container dsx (max-width:640px){.dsx-brand span{display:none;}.dsx-seg{display:none;}}',
-      '@container dsx (max-width:760px){.dsx-left{display:none;}.dsx-toolbtn-label{display:none;}}',
+      '@container dsx (max-width:760px){.dsx-drawer-btn{display:inline-flex !important;}.dsx-left{display:none;position:absolute;left:0;top:52px;bottom:0;z-index:16;width:min(320px,88%);background:var(--dsw-alias-bg-layer-1);border-right:1px solid var(--dsw-alias-border-l1);box-shadow:var(--dsw-shadow-lv3);}.dsx-left.dsx-left-open{display:flex;}.dsx-drawer-backdrop{display:block;position:absolute;inset:52px 0 0 0;z-index:15;background:var(--dsw-alias-bg-mask-2);}.dsx-toolbtn-label{display:none;}}',
     ].join('\n');
 
     /* ------------------------------------------------------------------ *

@@ -214,10 +214,16 @@ const TYPE_PHRASE =
   /^(?:a|an|the)?\s*(?:landing\s+page|home\s*page|homepage|website|web\s*site|web\s*page|page|portfolio(?:\s+(?:site|website|page))?|dashboard|admin\s+panel|analytics\s+dashboard|analytics|mobile\s+(?:app|application)(?:\s+onboarding)?|app(?:lication)?(?:\s+onboarding)?|onboarding(?:\s+flow)?|pricing\s+page|pricing|price\s+page|poster|cover\s+design|one[-\s]?pager|one[-\s]?page(?:\s+document)?|form|sign\s*-?\s*up\s+form|application\s+form|survey|questionnaire|product\s+page|brand\s+page|menu)\s*(?:for|about|of|to\s+promote|promoting|showcasing|featuring|covering|on)\s+/i;
 
 const MOOD_PREFIX =
-  /^(?:minimal(?:ist(?:ic)?)?|dark\s+mode|dark|bold|editorial|pastel|enterprise|brutalist|elegant|clean|simple|modern|sleek|airy|soft|friendly|极简|简约|简洁|素雅|暗色|夜间|深色|粗野|马卡龙|柔和|可爱|企业|专业|商务|优雅|大胆)(?:风格|感)?(?:的)?\s+/i;
+  /^(?:minimal(?:ist(?:ic)?)?|dark\s+mode|dark|bold|editorial|pastel|enterprise|brutalist|elegant|clean|simple|modern|sleek|airy|soft|friendly|极简|简约|简洁|素雅|暗色|夜间|深色|粗野|马卡龙|柔和|可爱|企业|专业|商务|优雅|大胆|克制|高级|精致|现代化|科技感|清新|清爽|温暖|复古|未来感|低调|奢华|大气)(?:风格|感)?(?:的)?\s+/i;
 
 function subjectOf(lead) {
   let s = String(lead || '').trim();
+  // Keep the subject phrase, not the requirements that follow it: briefs like
+  // "一个营收仪表盘，深色风格，包含 KPI 卡片" should title as "营收", not echo
+  // the whole instruction. Split off descriptive clauses before stripping the
+  // template/mood words below.
+  s = s.split(/\s*(?:包含|包括|带有|配有|以及|并且|并提供|支持|用于|用来)\s*|[，,；;]/u)[0].trim();
+  s = s.split(/\s+(?:with|including|featuring|containing|covering|that|which|plus)\s+/i)[0].trim();
   for (let pass = 0; pass < 4; pass += 1) {
     const before = s;
     s = s.replace(/^(?:a|an|the)\s+/i, '').replace(MOOD_PREFIX, '').trim();
@@ -228,7 +234,7 @@ function subjectOf(lead) {
   if (/[\u3400-\u9fff]/.test(s)) {
     const stripped = s
       .replace(
-        /(?:设计|制作|生成|创建|一个|一份|一张|官网|首页|落地页|网站|仪表盘|后台|移动应用|移动端|应用|价格页|定价页|价格|定价|套餐|海报|封面|单页文档|单页|文档|表单|调查问卷|问卷|调查|页面|风格|感|的|请|帮我)/gu,
+        /(?:设计|制作|生成|创建|一个|一份|一张|官网|首页|落地页|网站|仪表盘|后台|移动应用|移动端|应用|价格页|定价页|价格|定价|套餐|海报|封面|单页文档|单页|文档|表单|调查问卷|问卷|调查|页面|风格|感|的|请|帮我|面向|针对|关于|为了|给|克制|高级|精致|现代化|科技感|清新|清爽|温暖|复古|未来感|低调|奢华|大气)/gu,
         ''
       )
       .trim();
@@ -260,7 +266,7 @@ function deriveLead(brief, fallback) {
 function deriveTitle(brief, fallback) {
   const lead = deriveLead(brief, '');
   if (!lead) return fallback;
-  const subject = subjectOf(lead) || lead;
+  const subject = subjectOf(lead);
   return truncateText(capitalize(subject), 48) || fallback;
 }
 

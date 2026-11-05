@@ -18,16 +18,37 @@ DeepSeek Harness 插件：在左侧栏增加一个「设计工作室」入口，
   以及导入外部 HTML 在沙箱画布中预览。
 - 状态保存在浏览器 localStorage，刷新与切换面板不丢失。
 - 支持 `?panel=design-studio` 深链：打开带该参数的 Web GUI 地址会直接进入设计工作室。
+- 导出：HTML 下载/复制之外，新增「在新标签预览」「打印 / PDF」「导入 tokens」
+  （JSON 或 CSS 自定义属性，自动做可读性与合法性归一化）。
+- 窄窗口（<760px）不再直接丢弃编辑区：顶栏出现抽屉按钮，需求/模板/风格以覆盖层打开。
+- 画布文档刷新做 90ms 防抖，拖动 token 滑杆不再整页闪烁；标题推导会剥离
+  「包含…」「with …」等需求从句，避免把整句提示词当成设计标题。
+- 导入弹窗有焦点圈定、Esc 关闭与关闭后焦点还原。
 
-### 浏览器核验工具（v1.1）
+### 浏览器核验工具（v1.2）
 
 Host 半边注册两个 tool，使用**独立的临时 headless Chrome**（不碰用户浏览器资料与 cookie，
 不下载浏览器，临时 profile 用完即删）：
 
 | 工具 | 用途 |
 |---|---|
-| `design_verify_ui` | 用 `connection.authenticatedUrl()` 取得带鉴权的 Web GUI 地址，打开 `?panel=design-studio`，等待面板渲染后截图并审计（栏宽、iframe、控件数量、横向溢出、计算色值 / 对比度、控制台错误），可指定 `device`（desktop/tablet/mobile）、`theme`（current/dark）、`full_page`。 |
+| `design_verify_ui` | 用 `connection.authenticatedUrl()` 取得带鉴权的 Web GUI 地址，打开 `?panel=design-studio`，等待面板渲染后截图并审计，返回 `issues[]` 与 PASS/FAIL。支持 `device`、`theme`（current/dark/light）、`full_page`、`include_shell`，以及 `steps` 交互脚本（click/type/wait/screenshot），可验证“生成设计、打开弹窗、应用 tokens”等真实交互。 |
 | `design_screenshot_html` | 把自包含 HTML（内联字符串或本地 `.html` 文件）在 headless Chrome 中渲染并截图，用来直接查看生成的设计稿。 |
+
+**审计内容**：三列布局是否成立、横向溢出、控件数量、计算色值与对比度、无标注按钮、
+控制台错误，以及**沙箱 iframe 内设计稿本身**的尺寸/溢出/对比度/标题/图片加载
+（通过 CDP OOPIF target 读取，宿主页面读不到 sandbox iframe）。
+
+**隐私与安全默认值**：
+
+- `design_verify_ui` 默认把截图**裁剪到设计工作室面板**，避免左侧工作区/会话标题进入模型上下文；
+  需要整屏时传 `include_shell: true`。
+- 核验 loopback GUI 时只允许 loopback 网络；`design_screenshot_html` 默认阻止远程 DNS
+  （`block_network: false` 可放行外部图片/字体）。
+- `file_path` 必须位于会话工作区内；确实需要外部文件时显式传 `allow_outside_workspace: true`。
+- 报告会记录 Chrome 以 `sandboxed` 还是 `relaxed` 运行；可用
+  `DSH_DESIGN_CHROME_NO_SANDBOX=never` 禁止 `--no-sandbox` 回退。
+- 截图目录默认保留最近 60 张本工具命名的 PNG，自动清理旧文件。
 
 返回的 PNG 落在工作区 `.design-studio/screenshots/`（可用 `output_dir` 覆盖），
 调用后用内置的 `read_image` 读取图片即可让模型“看到”界面。

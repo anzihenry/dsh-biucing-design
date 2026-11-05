@@ -3,21 +3,26 @@
 // The screenshot test is a real end-to-end run: it launches an isolated
 // headless Chrome, renders inline HTML through CDP, captures a PNG, and checks
 // its dimensions. It is skipped (not failed) when no Chrome is installed.
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import assert from 'node:assert/strict'
 import { AUDIT_EXPRESSION } from '../lib/audit.js'
-import { findChromePath } from '../lib/chrome.js'
+import { findChromePath, resolveSandboxAttempts } from '../lib/chrome.js'
 import { isCdpAvailable, pngSize } from '../lib/cdp.js'
 import {
+  auditArtboard,
   authenticatedGuiUrl,
   designScreenshotHtmlTool,
   designVerifyUiTool,
+  deviceSize,
+  isInsideDirectory,
+  isLoopbackUrl,
   normalizeDevice,
   panelUrl,
   resolveOutputDir,
+  sessionDirectory,
 } from '../lib/tools.js'
 
 let passed = 0
@@ -103,6 +108,58 @@ await check('the screenshot tool rejects a missing file with a clear message', a
   services.workingDirectory = { defaultDirectory: process.cwd() }
   const tool = designScreenshotHtmlTool(fakeCtx)
   await assert.rejects(() => tool.execute({ file_path: 'definitely-not-a-file.html' }, fakeExec), /not found/)
+})
+
+await check('sandbox policy is configurable through the environment', () => {
+  assert.deepEqual(resolveSandboxAttempts({}), [false, true])
+  assert.deepEqual(resolveSandboxAttempts({ DSH_DESIGN_CHROME_NO_SANDBOX: 'never' }), [false])
+  assert.deepEqual(resolveSandboxAttempts({ DSH_DESIGN_CHROME_NO_SANDBOX: 'always' }), [true])
+})
+
+await check('workspace path containment and loopback detection are strict', () => {
+  assert.equal(isInsideDirectory('/work/app', '/work/app/design.html'), true)
+  assert.equal(isInsideDirectory('/work/app', '/work/app/sub/design.html'), true)
+  assert.equal(isInsideDirectory('/work/app', '/work/other/design.html'), false)
+  assert.equal(isInsideDirectory('/work/app', '/work/application/design.html'), false)
+  assert.equal(isLoopbackUrl('http://127.0.0.1:63971/'), true)
+  assert.equal(isLoopbackUrl('http://localhost:63971/'), true)
+  assert.equal(isLoopbackUrl('https://example.com/'), false)
+})
+
+await check('session directory falls back safely', () => {
+  assert.equal(sessionDirectory({ get: () => ({ defaultDirectory: '/work/app' }) }, {}), '/work/app')
+  assert.equal(typeof sessionDirectory({ get: () => undefined }, {}), 'string')
+})
+
+await check('the verify tool exposes privacy, steps and theme options', () => {
+  const tool = designVerifyUiTool(fakeCtx)
+  const props = tool.parameters.properties
+  assert.ok(props.include_shell)
+  assert.ok(props.steps)
+  assert.ok(props.full_page)
+  assert.deepEqual(props.theme.enum, ['current', 'dark', 'light'])
+  assert.deepEqual(props.device.enum, ['desktop', 'tablet', 'mobile'])
+  assert.equal(deviceSize('mobile').width, 390)
+})
+
+await check('artboard auditing is exported and degrades without a frame', async () => {
+  assert.equal(typeof auditArtboard, 'function')
+})
+
+await check('the screenshot tool refuses files outside the session working directory', async () => {
+  const work = await mkdtemp(join(tmpdir(), 'dsh-design-work-'))
+  const outside = await mkdtemp(join(tmpdir(), 'dsh-design-outside-'))
+  try {
+    const file = join(outside, 'page.html')
+    await writeFile(file, '<!doctype html><h1>outside</h1>')
+    services.workingDirectory = { defaultDirectory: work }
+    const tool = designScreenshotHtmlTool(fakeCtx)
+    await assert.rejects(() => tool.execute({ file_path: file }, fakeExec), /must stay inside the session working directory/)
+    await assert.rejects(() => tool.execute({ file_path: file, allow_outside_workspace: false }, fakeExec), /must stay inside/)
+  } finally {
+    await rm(work, { recursive: true, force: true })
+    await rm(outside, { recursive: true, force: true })
+  }
 })
 
 const chrome = findChromePath()

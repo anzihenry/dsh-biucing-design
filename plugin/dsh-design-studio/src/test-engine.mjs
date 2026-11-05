@@ -228,6 +228,20 @@ check('analyze() title is a short human title, not the whole brief', () => {
   assert.equal(engine.analyze('').title, 'Landing page');
 });
 
+check('analyze() title keeps the subject and drops requirement clauses', () => {
+  const zh = engine.analyze('一个营收仪表盘，深色风格，包含 KPI 卡片和月度图表');
+  assert.equal(zh.title, '营收');
+  const en = engine.analyze('A revenue dashboard, dark mode, with KPI cards and monthly charts');
+  assert.equal(en.title, 'Revenue dashboard');
+  const mixed = engine.analyze('一个面向 API 产品的克制落地页，包含首屏、代码示例与定价');
+  assert.equal(mixed.title, 'API 产品');
+  const styleOnly = engine.analyze('设计一个温暖复古的海报');
+  assert.equal(styleOnly.title, 'Poster');
+  for (const title of [zh.title, en.title, mixed.title, styleOnly.title]) {
+    assert.ok(!/包含|with KPI|KPI 卡片|月度图表/.test(title));
+  }
+});
+
 /* ------------------------------------------------------------------ */
 check('generate() HTML-escapes user text and neutralises injected handlers in every template', () => {
   const hostile = '<img src=x onerror=alert(1)> & "quotes"';
