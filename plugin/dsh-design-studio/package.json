@@ -1,0 +1,36 @@
+{
+  "name": "@local/dsh-design-studio",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Design Studio: a left-sidebar design canvas for DeepSeek Harness that turns briefs into self-contained design mockups.",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node scripts/build-client.mjs",
+    "test": "node src/test-engine.mjs && node src/test-built.mjs",
+    "test:built": "node src/test-built.mjs"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": []
+    }
+  }
+}

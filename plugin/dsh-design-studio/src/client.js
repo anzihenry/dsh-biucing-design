@@ -1,0 +1,1445 @@
+/**
+ * Design Studio — Client half.
+ *
+ * Registers two things and nothing else:
+ *   1. one `sidebar.panellist` entry whose id addresses the central panel;
+ *   2. the central panel itself in the keyed `main` slot.
+ *
+ * The file is the Client module artifact format: a `window.__ModuleLoader__`
+ * load with a lazy factory whose id equals the bundle package name. The design
+ * synthesis engine is inlined at the `/* @engine *\/` marker by
+ * `scripts/build-client.mjs`; edit `src/engine.mjs`, never the built file.
+ */
+window.__ModuleLoader__.load({
+  id: '@local/dsh-design-studio',
+  factory(require) {
+    const React = require('react');
+    const h = React.createElement;
+    const { useCallback, useEffect, useMemo, useRef, useState } = React;
+
+    const PANEL_ID = 'design-studio';
+    const LOCALE_NS = 'design-studio';
+    const STORAGE_KEY = 'dsh-design-studio.state.v1';
+    const STATE_VERSION = 1;
+
+    /* ------------------------------------------------------------------ *
+     * Design synthesis engine (inlined by scripts/build-client.mjs)
+     * ------------------------------------------------------------------ */
+    /* @engine */
+
+    let engine = null;
+    try {
+      engine = createDesignEngine();
+    } catch (error) {
+      engine = null;
+      // The panel still renders a readable diagnostic document instead of
+      // blanking the slot when the build step did not run.
+      if (typeof console !== 'undefined') console.warn('[design-studio] engine unavailable', error);
+    }
+
+    /* ------------------------------------------------------------------ *
+     * Locale dictionaries (registered with the host locale service)
+     * ------------------------------------------------------------------ */
+    const STRINGS = {
+      en: {
+        'panel.title': 'Design studio',
+        'panel.subtitle': 'Brief to canvas',
+        'project.untitled': 'Untitled design',
+        'project.namePlaceholder': 'Project name',
+        'project.new': 'New design',
+        'brief.heading': 'Brief',
+        'brief.placeholder': 'Describe the design: goal, layout, content, audience. Example: a calm landing page for an API product with a hero, code sample and pricing.',
+        'brief.shortcut': '⌘/Ctrl + Enter to generate',
+        'brief.generate': 'Generate design',
+        'brief.examplesHeading': 'Try one',
+        'ex.landing': 'A calm landing page for an API product with a hero, code sample and pricing',
+        'ex.dashboard': 'A revenue dashboard with KPI cards, a monthly chart and a region filter',
+        'ex.mobile': 'A four-screen onboarding flow for a habit tracking app',
+        'ex.pricing': 'A pricing page with three tiers, a yearly toggle and an FAQ',
+        'template.heading': 'Template',
+        'style.heading': 'Style',
+        'refine.heading': 'Refine',
+        'refine.simpler': 'Simpler',
+        'refine.premium': 'More refined',
+        'refine.playful': 'Playful',
+        'refine.dark': 'Dark mode',
+        'refine.light': 'Light mode',
+        'refine.airy': 'Airier',
+        'refine.tight': 'Tighter',
+        'refine.rounder': 'Rounder',
+        'refine.squarer': 'Squarer',
+        'history.heading': 'Versions',
+        'history.empty': 'Generated versions appear here.',
+        'canvas.importedTitle': 'Imported HTML',
+        'canvas.importedBadge': 'imported',
+        'canvas.sampleBadge': 'sample',
+        'canvas.frameTitle': 'Design preview',
+        'device.group': 'Canvas size',
+        'device.desktop': 'Desktop',
+        'device.tablet': 'Tablet',
+        'device.mobile': 'Mobile',
+        'toolbar.zoomOut': 'Zoom out',
+        'toolbar.zoomIn': 'Zoom in',
+        'toolbar.fit': 'Fit to width',
+        'toolbar.mode': 'Toggle light / dark',
+        'toolbar.export': 'Export HTML',
+        'toolbar.import': 'Import HTML',
+        'inspector.heading': 'Design system',
+        'inspector.style': 'Current style',
+        'inspector.reset': 'Reset to style',
+        'inspector.colors': 'Colors',
+        'inspector.accent': 'Accent',
+        'inspector.bg': 'Background',
+        'inspector.surface': 'Surface',
+        'inspector.text': 'Text',
+        'inspector.typography': 'Typography',
+        'inspector.displayFont': 'Headings',
+        'inspector.bodyFont': 'Body',
+        'inspector.scale': 'Type scale',
+        'inspector.density': 'Density',
+        'inspector.radius': 'Corner radius',
+        'inspector.contrast': 'Contrast',
+        'inspector.textContrast': 'Text on background',
+        'inspector.accentContrast': 'Label on accent',
+        'inspector.aaPass': 'AA',
+        'inspector.aaFail': 'Low',
+        'scale.compact': 'Compact',
+        'scale.regular': 'Regular',
+        'scale.airy': 'Airy',
+        'density.compact': 'Compact',
+        'density.regular': 'Regular',
+        'density.airy': 'Airy',
+        'font.sans': 'Sans',
+        'font.serif': 'Serif',
+        'font.rounded': 'Rounded',
+        'font.mono': 'Mono',
+        'font.styleDefault': 'Style default',
+        'export.heading': 'Export & handoff',
+        'export.download': 'Download HTML',
+        'export.copyHtml': 'Copy HTML',
+        'export.copyTokens': 'Copy tokens',
+        'export.copyHandoff': 'Copy handoff brief',
+        'export.import': 'Import HTML',
+        'import.title': 'Import HTML',
+        'import.hint': 'Paste a self-contained HTML document to preview it on the canvas. Scripts stay disabled inside the sandbox; external images or fonts the document references may still load.',
+        'import.apply': 'Show on canvas',
+        'import.cancel': 'Cancel',
+        'import.restore': 'Back to generated',
+        'about.note': 'State is stored in this browser. Generated designs are self-contained HTML.',
+        'toast.needBrief': 'Write a brief first',
+        'toast.generated': 'Design generated',
+        'toast.copied': 'Copied',
+        'toast.downloaded': 'HTML downloaded',
+        'toast.failed': 'Action failed',
+        'toast.imported': 'Imported HTML shown',
+        'toast.reset': 'New design',
+        'toast.engineMissing': 'Design engine is unavailable',
+        'engine.missing': 'The design engine could not be loaded. Run the build step: node scripts/build-client.mjs.',
+      },
+      zh: {
+        'panel.title': '设计工作室',
+        'panel.subtitle': '需求直达画布',
+        'project.untitled': '未命名设计',
+        'project.namePlaceholder': '项目名称',
+        'project.new': '新建设计',
+        'brief.heading': '需求描述',
+        'brief.placeholder': '描述你想要的设计：目标、布局、内容、受众。例如：一个面向 API 产品的克制落地页，包含首屏、代码示例与定价。',
+        'brief.shortcut': '⌘/Ctrl + Enter 生成',
+        'brief.generate': '生成设计',
+        'brief.examplesHeading': '试试这些',
+        'ex.landing': '一个面向 API 产品的克制落地页，包含首屏、代码示例与定价',
+        'ex.dashboard': '一个营收仪表盘，包含 KPI 卡片、月度图表与区域筛选',
+        'ex.mobile': '一个习惯打卡 App 的四屏引导流程',
+        'ex.pricing': '一个三档定价页，包含年付切换与常见问题',
+        'template.heading': '模板',
+        'style.heading': '风格',
+        'refine.heading': '快速优化',
+        'refine.simpler': '更简洁',
+        'refine.premium': '更高级',
+        'refine.playful': '更活泼',
+        'refine.dark': '深色模式',
+        'refine.light': '浅色模式',
+        'refine.airy': '更疏朗',
+        'refine.tight': '更紧凑',
+        'refine.rounder': '更圆润',
+        'refine.squarer': '更方正',
+        'history.heading': '版本',
+        'history.empty': '生成的版本会出现在这里。',
+        'canvas.importedTitle': '导入的 HTML',
+        'canvas.importedBadge': '导入',
+        'canvas.sampleBadge': '示例',
+        'canvas.frameTitle': '设计预览',
+        'device.group': '画布尺寸',
+        'device.desktop': '桌面',
+        'device.tablet': '平板',
+        'device.mobile': '手机',
+        'toolbar.zoomOut': '缩小',
+        'toolbar.zoomIn': '放大',
+        'toolbar.fit': '适应宽度',
+        'toolbar.mode': '切换明暗',
+        'toolbar.export': '导出 HTML',
+        'toolbar.import': '导入 HTML',
+        'inspector.heading': '设计系统',
+        'inspector.style': '当前风格',
+        'inspector.reset': '恢复风格预设',
+        'inspector.colors': '颜色',
+        'inspector.accent': '品牌色',
+        'inspector.bg': '背景',
+        'inspector.surface': '表面',
+        'inspector.text': '文字',
+        'inspector.typography': '字体',
+        'inspector.displayFont': '标题',
+        'inspector.bodyFont': '正文',
+        'inspector.scale': '字号节奏',
+        'inspector.density': '留白密度',
+        'inspector.radius': '圆角',
+        'inspector.contrast': '对比度',
+        'inspector.textContrast': '文字 / 背景',
+        'inspector.accentContrast': '按钮文字 / 品牌色',
+        'inspector.aaPass': 'AA',
+        'inspector.aaFail': '偏低',
+        'scale.compact': '紧凑',
+        'scale.regular': '标准',
+        'scale.airy': '宽松',
+        'density.compact': '紧凑',
+        'density.regular': '标准',
+        'density.airy': '宽松',
+        'font.sans': '无衬线',
+        'font.serif': '衬线',
+        'font.rounded': '圆体',
+        'font.mono': '等宽',
+        'font.styleDefault': '风格默认',
+        'export.heading': '导出与交付',
+        'export.download': '下载 HTML',
+        'export.copyHtml': '复制 HTML',
+        'export.copyTokens': '复制 tokens',
+        'export.copyHandoff': '复制交付说明',
+        'export.import': '导入 HTML',
+        'import.title': '导入 HTML',
+        'import.hint': '粘贴一个自包含的 HTML 文档即可在画布预览。沙箱内不会执行脚本；文档引用的外部图片或字体会被加载。',
+        'import.apply': '在画布中显示',
+        'import.cancel': '取消',
+        'import.restore': '回到生成结果',
+        'about.note': '状态保存在当前浏览器；生成结果为自包含 HTML。',
+        'toast.needBrief': '先写一句需求',
+        'toast.generated': '已生成设计',
+        'toast.copied': '已复制',
+        'toast.downloaded': 'HTML 已下载',
+        'toast.failed': '操作失败',
+        'toast.imported': '已显示导入的 HTML',
+        'toast.reset': '已新建设计',
+        'toast.engineMissing': '设计引擎不可用',
+        'engine.missing': '设计引擎未能加载。请执行构建：node scripts/build-client.mjs。',
+      },
+    };
+
+    /* ------------------------------------------------------------------ *
+     * Small utilities
+     * ------------------------------------------------------------------ */
+    const HEX_FIELDS = ['accent', 'accentText', 'bg', 'surface', 'surfaceAlt', 'text', 'muted', 'border'];
+    const SCALES = ['compact', 'regular', 'airy'];
+
+    function clamp(value, min, max) {
+      return Math.min(max, Math.max(min, value));
+    }
+
+    function escapeText(value) {
+      return String(value == null ? '' : value).replace(/[&<>"']/g, (char) => (
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]
+      ));
+    }
+
+    function parseColor(input) {
+      if (typeof input !== 'string') return null;
+      let value = input.trim().toLowerCase();
+      if (/^#[0-9a-f]{3}$/.test(value)) {
+        value = '#' + value[1] + value[1] + value[2] + value[2] + value[3] + value[3];
+      }
+      return /^#[0-9a-f]{6}$/.test(value) ? value : null;
+    }
+
+    function colorChannels(hex) {
+      const value = parseColor(hex) || '#000000';
+      return {
+        r: parseInt(value.slice(1, 3), 16),
+        g: parseInt(value.slice(3, 5), 16),
+        b: parseInt(value.slice(5, 7), 16),
+      };
+    }
+
+    function rgbToHex(rgb) {
+      const part = (number) => clamp(Math.round(number), 0, 255).toString(16).padStart(2, '0');
+      return '#' + part(rgb.r) + part(rgb.g) + part(rgb.b);
+    }
+
+    function mix(from, to, amount) {
+      const a = colorChannels(from);
+      const b = colorChannels(to);
+      const t = clamp(Number(amount) || 0, 0, 1);
+      return rgbToHex({ r: a.r + (b.r - a.r) * t, g: a.g + (b.g - a.g) * t, b: a.b + (b.b - a.b) * t });
+    }
+
+    function relativeLuminance(hex) {
+      const { r, g, b } = colorChannels(hex);
+      const channel = (value) => {
+        const c = value / 255;
+        return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+      };
+      return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+    }
+
+    function contrastRatio(first, second) {
+      const a = relativeLuminance(first);
+      const b = relativeLuminance(second);
+      const lighter = Math.max(a, b);
+      const darker = Math.min(a, b);
+      return (lighter + 0.05) / (darker + 0.05);
+    }
+
+    function readableOn(background) {
+      return contrastRatio(background, '#ffffff') >= contrastRatio(background, '#14161c') ? '#ffffff' : '#14161c';
+    }
+
+    function slug(value) {
+      const cleaned = String(value || '')
+        .trim()
+        .replace(/[\\/:*?"<>|\s]+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^[.-]+|[.-]+$/g, '')
+        .slice(0, 48);
+      return cleaned || 'design';
+    }
+
+    function uniqueId() {
+      return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    }
+
+    function formatTime(timestamp) {
+      try {
+        return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      } catch (error) {
+        return '';
+      }
+    }
+
+    /* ------------------------------------------------------------------ *
+     * Token helpers
+     * ------------------------------------------------------------------ */
+    const LIGHT_NEUTRALS = { bg: '#ffffff', surface: '#f6f7f9', surfaceAlt: '#eef0f4', text: '#12151c', muted: '#5b6270', border: '#e2e5ec' };
+    const DARK_NEUTRALS = { bg: '#0b0e14', surface: '#141821', surfaceAlt: '#1b202b', text: '#f3f5f9', muted: '#9aa3b2', border: '#252b38' };
+
+    function baseTokens() {
+      if (engine) return engine.baseTokens();
+      return Object.assign({ mode: 'light', accent: '#4a5cf5', accentText: '#ffffff', fontDisplay: 'sans-serif', fontBody: 'sans-serif', radius: 12, density: 'regular', scale: 'regular' }, LIGHT_NEUTRALS);
+    }
+
+    function ensureTokens(raw) {
+      const base = baseTokens();
+      const tokens = Object.assign({}, base, raw || {});
+      tokens.mode = tokens.mode === 'dark' ? 'dark' : 'light';
+      HEX_FIELDS.forEach((field) => {
+        tokens[field] = parseColor(tokens[field]) || base[field];
+      });
+      tokens.radius = clamp(Number(tokens.radius) || 0, 0, 28);
+      tokens.density = SCALES.indexOf(tokens.density) === -1 ? 'regular' : tokens.density;
+      tokens.scale = SCALES.indexOf(tokens.scale) === -1 ? 'regular' : tokens.scale;
+      tokens.fontDisplay = String(tokens.fontDisplay || base.fontDisplay);
+      tokens.fontBody = String(tokens.fontBody || base.fontBody);
+      return tokens;
+    }
+
+    function withDerived(tokens) {
+      const next = Object.assign({}, tokens);
+      next.muted = mix(next.text, next.bg, 0.45);
+      next.border = mix(next.text, next.bg, 0.84);
+      next.accentText = readableOn(next.accent);
+      return next;
+    }
+
+    function tuneMode(tokens, mode) {
+      if (tokens.mode === mode) return tokens;
+      const neutrals = mode === 'dark' ? DARK_NEUTRALS : LIGHT_NEUTRALS;
+      return withDerived(Object.assign({}, tokens, neutrals, { mode: mode }));
+    }
+
+    const REFINE_ACTIONS = [
+      { id: 'simpler', labelKey: 'refine.simpler', run: (tokens) => Object.assign({}, tokens, { density: 'compact', scale: 'compact', radius: Math.min(tokens.radius, 10) }) },
+      { id: 'premium', labelKey: 'refine.premium', run: (tokens) => Object.assign({}, tokens, { density: 'airy', scale: 'airy', radius: Math.max(tokens.radius, 16) }) },
+      { id: 'playful', labelKey: 'refine.playful', run: (tokens) => Object.assign({}, tokens, { radius: Math.min(28, Math.max(tokens.radius, 22)), accent: mix(tokens.accent, '#ff5fa2', 0.35) }) },
+      { id: 'dark', labelKey: 'refine.dark', run: (tokens) => tuneMode(tokens, 'dark') },
+      { id: 'light', labelKey: 'refine.light', run: (tokens) => tuneMode(tokens, 'light') },
+      { id: 'airy', labelKey: 'refine.airy', run: (tokens) => Object.assign({}, tokens, { density: 'airy', scale: 'airy' }) },
+      { id: 'tight', labelKey: 'refine.tight', run: (tokens) => Object.assign({}, tokens, { density: 'compact', scale: 'compact' }) },
+      { id: 'rounder', labelKey: 'refine.rounder', run: (tokens) => Object.assign({}, tokens, { radius: Math.min(28, tokens.radius + 6) }) },
+      { id: 'squarer', labelKey: 'refine.squarer', run: (tokens) => Object.assign({}, tokens, { radius: Math.max(0, tokens.radius - 6) }) },
+    ];
+
+    const FONT_CHOICES = [
+      { id: 'sans', labelKey: 'font.sans', stack: "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif" },
+      { id: 'serif', labelKey: 'font.serif', stack: "'Iowan Old Style', 'Palatino Linotype', Palatino, 'Songti SC', 'Noto Serif CJK SC', Georgia, serif" },
+      { id: 'rounded', labelKey: 'font.rounded', stack: "ui-rounded, 'Hiragino Maru Gothic ProN', Quicksand, 'PingFang SC', system-ui, sans-serif" },
+      { id: 'mono', labelKey: 'font.mono', stack: "ui-monospace, SFMono-Regular, Menlo, 'Cascadia Mono', 'Roboto Mono', monospace" },
+    ];
+
+    const DEVICES = [
+      { id: 'desktop', width: 1280, height: 900, labelKey: 'device.desktop' },
+      { id: 'tablet', width: 834, height: 1000, labelKey: 'device.tablet' },
+      { id: 'mobile', width: 390, height: 820, labelKey: 'device.mobile' },
+    ];
+
+    /* ------------------------------------------------------------------ *
+     * State, persistence, and derived data
+     * ------------------------------------------------------------------ */
+    function initialTemplateId() {
+      return engine && engine.templates.length ? engine.templates[0].id : 'landing';
+    }
+
+    function defaultStyle() {
+      return engine && engine.styles.length ? engine.styles[0] : null;
+    }
+
+    function createInitialState() {
+      const style = defaultStyle();
+      return {
+        version: STATE_VERSION,
+        projectName: '',
+        brief: '',
+        draftBrief: '',
+        template: initialTemplateId(),
+        styleId: style ? style.id : 'minimal',
+        tokens: ensureTokens(style ? style.tokens : null),
+        history: [],
+        device: 'desktop',
+        zoom: 0.72,
+        importedHtml: '',
+        importedTitle: '',
+      };
+    }
+
+    function readSavedState() {
+      let saved = null;
+      try {
+        const raw = window.localStorage.getItem(STORAGE_KEY);
+        if (raw) saved = JSON.parse(raw);
+      } catch (error) {
+        saved = null;
+      }
+      if (!saved || typeof saved !== 'object' || saved.version !== STATE_VERSION) return null;
+      return saved;
+    }
+
+    function writeSavedState(state) {
+      try {
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      } catch (error) {
+        /* Storage full or unavailable: the panel keeps working in memory. */
+      }
+    }
+
+    function sanitizeHistoryEntry(entry) {
+      if (!entry || typeof entry !== 'object') return null;
+      return {
+        id: String(entry.id || Date.now()),
+        at: Number(entry.at) || Date.now(),
+        label: String(entry.label || ''),
+        brief: typeof entry.brief === 'string' ? entry.brief : '',
+        template: engine && engine.templates.some((item) => item.id === entry.template) ? entry.template : initialTemplateId(),
+        styleId: engine && engine.styles.some((item) => item.id === entry.styleId) ? entry.styleId : (defaultStyle() ? defaultStyle().id : 'minimal'),
+        tokens: ensureTokens(entry.tokens),
+      };
+    }
+
+    function loadState() {
+      const fallback = createInitialState();
+      const saved = readSavedState();
+      if (!saved) return fallback;
+      try {
+        const tokens = ensureTokens(saved.tokens);
+        const history = Array.isArray(saved.history)
+          ? saved.history.map(sanitizeHistoryEntry).filter(Boolean).slice(0, 12)
+          : [];
+        return {
+          version: STATE_VERSION,
+          projectName: typeof saved.projectName === 'string' ? saved.projectName : '',
+          brief: typeof saved.brief === 'string' ? saved.brief : '',
+          draftBrief: typeof saved.draftBrief === 'string' ? saved.draftBrief : (typeof saved.brief === 'string' ? saved.brief : ''),
+          template: engine && engine.templates.some((item) => item.id === saved.template) ? saved.template : fallback.template,
+          styleId: engine && engine.styles.some((item) => item.id === saved.styleId) ? saved.styleId : fallback.styleId,
+          tokens: tokens,
+          history: history,
+          device: DEVICES.some((item) => item.id === saved.device) ? saved.device : fallback.device,
+          zoom: clamp(Number(saved.zoom) || fallback.zoom, 0.25, 2),
+          importedHtml: typeof saved.importedHtml === 'string' ? saved.importedHtml : '',
+          importedTitle: typeof saved.importedTitle === 'string' ? saved.importedTitle : '',
+        };
+      } catch (error) {
+        return fallback;
+      }
+    }
+
+    function fallbackDocument(message) {
+      return [
+        '<!doctype html><html><head><meta charset="utf-8">',
+        '<style>html,body{height:100%}body{margin:0;display:flex;align-items:center;justify-content:center;',
+        "background:#f5f6f8;color:#2a2f3a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}",
+        'main{max-width:520px;padding:32px;text-align:center;line-height:1.6}h1{font-size:18px;margin:0 0 12px}',
+        'p{margin:0;font-size:13px}</style></head><body><main><h1>Design Studio</h1><p>',
+        escapeText(message),
+        '</p></main></body></html>',
+      ].join('');
+    }
+
+    function createDesignPanel(ctx, t) {
+      return function DesignPanel() {
+        const [state, setState] = useState(loadState);
+        const [activeLocale, setActiveLocale] = useState(() => {
+          try {
+            return ctx.locale.getLocale().active;
+          } catch (error) {
+            return 'en';
+          }
+        });
+        const [toast, setToast] = useState(null);
+        const [dialog, setDialog] = useState(null);
+        const [importDraft, setImportDraft] = useState('');
+        const [canvasWidth, setCanvasWidth] = useState(0);
+        const toastTimer = useRef(null);
+        const canvasRef = useRef(null);
+        const stateRef = useRef(state);
+        stateRef.current = state;
+
+        const lang = String(activeLocale || 'en').toLowerCase().indexOf('zh') === 0 ? 'zh' : 'en';
+
+        useEffect(() => {
+          try {
+            return ctx.locale.subscribe(() => {
+              try {
+                setActiveLocale(ctx.locale.getLocale().active);
+              } catch (error) {
+                /* keep the previous locale */
+              }
+            });
+          } catch (error) {
+            return undefined;
+          }
+        }, []);
+
+        useEffect(() => {
+          const timer = setTimeout(() => writeSavedState(state), 240);
+          return () => clearTimeout(timer);
+        }, [state]);
+
+        useEffect(() => () => {
+          if (toastTimer.current) clearTimeout(toastTimer.current);
+          writeSavedState(stateRef.current);
+        }, []);
+
+        useEffect(() => {
+          const element = canvasRef.current;
+          if (!element || typeof ResizeObserver === 'undefined') return undefined;
+          const observer = new ResizeObserver((entries) => {
+            const entry = entries[0];
+            if (entry) setCanvasWidth(entry.contentRect.width);
+          });
+          observer.observe(element);
+          return () => observer.disconnect();
+        }, []);
+
+        useEffect(() => {
+          if (!dialog) return undefined;
+          const onKeyDown = (event) => {
+            if (event.key === 'Escape') setDialog(null);
+          };
+          document.addEventListener('keydown', onKeyDown);
+          return () => document.removeEventListener('keydown', onKeyDown);
+        }, [dialog]);
+
+        const notify = useCallback((message) => {
+          setToast(message);
+          if (toastTimer.current) clearTimeout(toastTimer.current);
+          toastTimer.current = setTimeout(() => setToast(null), 2400);
+        }, []);
+
+        const patch = useCallback((partial) => {
+          setState((previous) => Object.assign({}, previous, typeof partial === 'function' ? partial(previous) : partial));
+        }, []);
+
+        const labelOf = useCallback((item) => {
+          if (!item) return '';
+          if (item.label) return item.label[lang] || item.label.en || '';
+          return '';
+        }, [lang]);
+
+        const templateLabel = useCallback((templateId) => {
+          const item = engine ? engine.templates.find((candidate) => candidate.id === templateId) : null;
+          return labelOf(item) || templateId;
+        }, [labelOf]);
+
+        const styleLabel = useCallback((styleId) => {
+          const item = engine ? engine.styles.find((candidate) => candidate.id === styleId) : null;
+          return labelOf(item) || styleId;
+        }, [labelOf]);
+
+        const device = DEVICES.find((item) => item.id === state.device) || DEVICES[0];
+
+        const artifact = useMemo(() => {
+          if (state.importedHtml) {
+            return { title: state.importedTitle || t('canvas.importedTitle'), html: state.importedHtml, imported: true };
+          }
+          if (!engine) {
+            return { title: t('panel.title'), html: fallbackDocument(t('engine.missing')), imported: false };
+          }
+          try {
+            const output = engine.generate({ brief: state.brief, template: state.template, tokens: state.tokens });
+            return { title: output.title || t('project.untitled'), html: output.html, imported: false };
+          } catch (error) {
+            const message = error && error.message ? error.message : String(error);
+            return { title: t('panel.title'), html: fallbackDocument(message), imported: false };
+          }
+        }, [state.brief, state.template, state.tokens, state.importedHtml, state.importedTitle, t]);
+
+        const generateFrom = useCallback((rawBrief) => {
+          const brief = String(rawBrief == null ? '' : rawBrief).trim();
+          if (!brief) {
+            notify(t('toast.needBrief'));
+            return;
+          }
+          if (!engine) {
+            notify(t('toast.engineMissing'));
+            return;
+          }
+          let analysis = null;
+          try {
+            analysis = engine.analyze(brief);
+          } catch (error) {
+            analysis = null;
+          }
+          const safeAnalysis = analysis && typeof analysis === 'object' ? analysis : {};
+          setState((previous) => {
+            const template = engine.templates.some((item) => item.id === safeAnalysis.template)
+              ? safeAnalysis.template
+              : previous.template;
+            const style = engine.styles.find((item) => item.id === safeAnalysis.styleId)
+              || engine.styles.find((item) => item.id === previous.styleId)
+              || defaultStyle();
+            const tokens = ensureTokens(style ? style.tokens : previous.tokens);
+            const entry = {
+              id: uniqueId(),
+              at: Date.now(),
+              label: String(safeAnalysis.title || templateLabel(template) || ''),
+              brief: brief,
+              template: template,
+              styleId: style ? style.id : previous.styleId,
+              tokens: tokens,
+            };
+            return Object.assign({}, previous, {
+              brief: brief,
+              draftBrief: brief,
+              template: template,
+              styleId: style ? style.id : previous.styleId,
+              tokens: tokens,
+              history: [entry].concat(previous.history).slice(0, 12),
+              importedHtml: '',
+              importedTitle: '',
+            });
+          });
+          notify(t('toast.generated'));
+        }, [notify, t, templateLabel]);
+
+        const handleGenerate = useCallback(() => {
+          generateFrom(state.draftBrief);
+        }, [generateFrom, state.draftBrief]);
+
+        const handleNewDesign = useCallback(() => {
+          const fresh = createInitialState();
+          setState((previous) => Object.assign({}, fresh, { projectName: previous.projectName }));
+          setDialog(null);
+          notify(t('toast.reset'));
+        }, [notify, t]);
+
+        const selectTemplate = useCallback((templateId) => {
+          patch({ template: templateId, importedHtml: '', importedTitle: '' });
+        }, [patch]);
+
+        const selectStyle = useCallback((styleId) => {
+          const style = engine ? engine.styles.find((item) => item.id === styleId) : null;
+          if (!style) return;
+          patch({ styleId: styleId, tokens: ensureTokens(style.tokens), importedHtml: '', importedTitle: '' });
+        }, [patch]);
+
+        const resetStyle = useCallback(() => {
+          const style = engine ? engine.styles.find((item) => item.id === state.styleId) : null;
+          if (!style) return;
+          patch({ tokens: ensureTokens(style.tokens) });
+        }, [patch, state.styleId]);
+
+        const refine = useCallback((action) => {
+          let tokens = null;
+          try {
+            tokens = ensureTokens(action.run(state.tokens));
+          } catch (error) {
+            tokens = state.tokens;
+          }
+          const entry = {
+            id: uniqueId(),
+            at: Date.now(),
+            label: t(action.labelKey),
+            brief: state.brief,
+            template: state.template,
+            styleId: state.styleId,
+            tokens: tokens,
+          };
+          setState((previous) => Object.assign({}, previous, {
+            tokens: tokens,
+            history: [entry].concat(previous.history).slice(0, 12),
+            importedHtml: '',
+            importedTitle: '',
+          }));
+        }, [state.brief, state.template, state.styleId, state.tokens, t]);
+
+        const setTokenField = useCallback((field, value) => {
+          patch((previous) => ({ tokens: withDerived(Object.assign({}, previous.tokens, { [field]: value })) }));
+        }, [patch]);
+
+        const setColor = useCallback((field, rawValue) => {
+          const hex = parseColor(rawValue);
+          if (!hex) return;
+          patch((previous) => ({ tokens: withDerived(Object.assign({}, previous.tokens, { [field]: hex })) }));
+        }, [patch]);
+
+        const setFont = useCallback((role, fontId) => {
+          patch((previous) => {
+            const tokens = Object.assign({}, previous.tokens);
+            let stack = null;
+            if (fontId === 'style') {
+              const style = engine ? engine.styles.find((item) => item.id === previous.styleId) : null;
+              stack = style ? (role === 'display' ? style.tokens.fontDisplay : style.tokens.fontBody) : null;
+            } else {
+              const font = FONT_CHOICES.find((item) => item.id === fontId);
+              stack = font ? font.stack : null;
+            }
+            if (!stack) return {};
+            if (role === 'display') tokens.fontDisplay = stack;
+            else tokens.fontBody = stack;
+            return { tokens: tokens };
+          });
+        }, [patch]);
+
+        const toggleMode = useCallback(() => {
+          patch((previous) => ({ tokens: tuneMode(previous.tokens, previous.tokens.mode === 'dark' ? 'light' : 'dark') }));
+        }, [patch]);
+
+        const restoreHistory = useCallback((entry) => {
+          setState((previous) => Object.assign({}, previous, {
+            brief: entry.brief,
+            draftBrief: entry.brief,
+            template: entry.template,
+            styleId: entry.styleId,
+            tokens: ensureTokens(entry.tokens),
+            importedHtml: '',
+            importedTitle: '',
+          }));
+        }, []);
+
+        const setZoom = useCallback((value) => {
+          patch({ zoom: clamp(Math.round(value * 100) / 100, 0.25, 2) });
+        }, [patch]);
+
+        const fitToWidth = useCallback(() => {
+          const available = canvasWidth ? canvasWidth - 8 : 0;
+          if (!available) {
+            setZoom(1);
+            return;
+          }
+          setZoom(clamp(available / device.width, 0.25, 1));
+        }, [canvasWidth, device.width, setZoom]);
+
+        const copyText = useCallback(async (text, message) => {
+          try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              await navigator.clipboard.writeText(text);
+            } else {
+              const area = document.createElement('textarea');
+              area.value = text;
+              area.style.position = 'fixed';
+              area.style.opacity = '0';
+              document.body.appendChild(area);
+              area.select();
+              document.execCommand('copy');
+              area.remove();
+            }
+            notify(message);
+          } catch (error) {
+            notify(t('toast.failed'));
+          }
+        }, [notify, t]);
+
+        const downloadHtml = useCallback(() => {
+          try {
+            const blob = new Blob([artifact.html], { type: 'text/html;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = slug(state.projectName || artifact.title) + '.html';
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+            notify(t('toast.downloaded'));
+          } catch (error) {
+            notify(t('toast.failed'));
+          }
+        }, [artifact, notify, state.projectName, t]);
+
+        const buildHandoff = useCallback(() => {
+          const lines = [
+            '# ' + t('export.copyHandoff'),
+            '',
+            '## ' + t('brief.heading'),
+            state.brief || '—',
+            '',
+            '## ' + t('template.heading'),
+            templateLabel(state.template),
+            '',
+            '## ' + t('style.heading'),
+            styleLabel(state.styleId),
+            '',
+            '## Design tokens',
+            '```json',
+            JSON.stringify(state.tokens, null, 2),
+            '```',
+            '',
+            '请用上述 tokens 把该设计实现为可运行的响应式页面，保持字体、颜色、圆角与留白节奏一致。',
+          ];
+          return lines.join('\n');
+        }, [state.brief, state.styleId, state.template, state.tokens, styleLabel, t, templateLabel]);
+
+        const openImport = useCallback(() => {
+          setImportDraft(state.importedHtml || '');
+          setDialog('import');
+        }, [state.importedHtml]);
+
+        const applyImport = useCallback(() => {
+          const html = importDraft.trim();
+          if (!html) return;
+          patch({ importedHtml: html, importedTitle: t('canvas.importedTitle') });
+          setDialog(null);
+          notify(t('toast.imported'));
+        }, [importDraft, notify, patch, t]);
+
+        const restoreGenerated = useCallback(() => {
+          patch({ importedHtml: '', importedTitle: '' });
+          setDialog(null);
+        }, [patch]);
+
+        const zoomPercent = Math.round(state.zoom * 100);
+        const frameWidth = Math.round(device.width * state.zoom);
+        const frameHeight = Math.round(device.height * state.zoom);
+        const isSample = !state.brief.trim() && !state.importedHtml;
+
+        const currentStyle = engine ? engine.styles.find((item) => item.id === state.styleId) : null;
+        const pickFontId = (stack, styleStack) => {
+          const match = FONT_CHOICES.find((font) => font.stack === stack);
+          if (match) return match.id;
+          return styleStack && stack === styleStack ? 'style' : 'style';
+        };
+        const displayFontId = pickFontId(state.tokens.fontDisplay, currentStyle ? currentStyle.tokens.fontDisplay : null);
+        const bodyFontId = pickFontId(state.tokens.fontBody, currentStyle ? currentStyle.tokens.fontBody : null);
+        const fontOptions = [{ value: 'style', label: t('font.styleDefault') }].concat(FONT_CHOICES.map((font) => ({ value: font.id, label: t(font.labelKey) })));
+        const textContrast = contrastRatio(state.tokens.text, state.tokens.bg);
+        const accentContrast = contrastRatio(state.tokens.accentText, state.tokens.accent);
+
+        const examples = ['ex.landing', 'ex.dashboard', 'ex.mobile', 'ex.pricing'];
+
+        return h(React.Fragment, null,
+          h('style', null, STYLE_TEXT),
+          h('div', { className: 'dsx-root' },
+            /* Top bar */
+            h('header', { className: 'dsx-topbar' },
+              h('div', { className: 'dsx-brand' },
+                h(DesignStudioMark, { size: 18 }),
+                h('span', null, t('panel.title'))),
+              h('span', { className: 'dsx-divider' }),
+              h('span', { className: 'dsx-project-title', title: state.projectName || t('project.untitled') },
+                state.projectName || t('project.untitled')),
+              h('div', { className: 'dsx-spacer' }),
+              h(Segmented, {
+                value: state.device,
+                ariaLabel: t('device.group'),
+                options: DEVICES.map((item) => ({ value: item.id, label: t(item.labelKey) })),
+                onChange: (value) => patch({ device: value }),
+              }),
+              h('span', { className: 'dsx-divider' }),
+              h('button', { type: 'button', className: 'dsx-toolbtn', title: t('toolbar.zoomOut'), 'aria-label': t('toolbar.zoomOut'), onClick: () => setZoom(state.zoom - 0.1) },
+                h(Glyph, { name: 'minus' })),
+              h('span', { className: 'dsx-zoom', title: t('toolbar.fit') }, zoomPercent + '%'),
+              h('button', { type: 'button', className: 'dsx-toolbtn', title: t('toolbar.zoomIn'), 'aria-label': t('toolbar.zoomIn'), onClick: () => setZoom(state.zoom + 0.1) },
+                h(Glyph, { name: 'plus' })),
+              h('button', { type: 'button', className: 'dsx-toolbtn', title: t('toolbar.fit'), 'aria-label': t('toolbar.fit'), onClick: fitToWidth },
+                h(Glyph, { name: 'fit' })),
+              h('span', { className: 'dsx-divider' }),
+              h('button', {
+                type: 'button',
+                className: 'dsx-toolbtn',
+                title: t('toolbar.mode'),
+                'aria-label': t('toolbar.mode'),
+                'aria-pressed': state.tokens.mode === 'dark' ? 'true' : 'false',
+                onClick: toggleMode,
+              }, h(Glyph, { name: state.tokens.mode === 'dark' ? 'sun' : 'moon' })),
+              h('button', { type: 'button', className: 'dsx-toolbtn dsx-toolbtn-strong', title: t('toolbar.export'), onClick: downloadHtml },
+                h(Glyph, { name: 'download' }),
+                h('span', { className: 'dsx-toolbtn-label' }, t('export.download')))),
+
+            h('div', { className: 'dsx-body' },
+              /* Left column: brief, direction, versions */
+              h('aside', { className: 'dsx-left' },
+                h('section', { className: 'dsx-section' },
+                  h('div', { className: 'dsx-section-title' },
+                    h('span', null, t('brief.heading')),
+                    h('button', { type: 'button', className: 'dsx-linkbtn', title: t('project.new'), onClick: handleNewDesign }, t('project.new'))),
+                  h('input', {
+                    className: 'dsx-input dsx-project-input',
+                    value: state.projectName,
+                    placeholder: t('project.namePlaceholder'),
+                    'aria-label': t('project.namePlaceholder'),
+                    spellCheck: false,
+                    onChange: (event) => patch({ projectName: event.target.value }),
+                  }),
+                  h('textarea', {
+                    className: 'dsx-textarea',
+                    value: state.draftBrief,
+                    placeholder: t('brief.placeholder'),
+                    'aria-label': t('brief.heading'),
+                    spellCheck: false,
+                    onChange: (event) => patch({ draftBrief: event.target.value }),
+                    onKeyDown: (event) => {
+                      if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                        event.preventDefault();
+                        handleGenerate();
+                      }
+                    },
+                  }),
+                  h('div', { className: 'dsx-hint' }, t('brief.shortcut')),
+                  h('button', { type: 'button', className: 'dsx-primary', onClick: handleGenerate },
+                    h(Glyph, { name: 'sparkle' }),
+                    h('span', null, t('brief.generate'))),
+                  isSample ? h('div', { className: 'dsx-examples' },
+                    h('div', { className: 'dsx-section-title' }, h('span', null, t('brief.examplesHeading'))),
+                    examples.map((key) => h('button', {
+                      key: key,
+                      type: 'button',
+                      className: 'dsx-example',
+                      onClick: () => { patch({ draftBrief: t(key) }); generateFrom(t(key)); },
+                    }, t(key)))) : null),
+
+                h('section', { className: 'dsx-section' },
+                  h('div', { className: 'dsx-section-title' }, h('span', null, t('template.heading'))),
+                  h('div', { className: 'dsx-chips' },
+                    (engine ? engine.templates : []).map((item) => h(Chip, {
+                      key: item.id,
+                      pressed: state.template === item.id,
+                      title: item.hint ? item.hint[lang] || item.hint.en : undefined,
+                      onClick: () => selectTemplate(item.id),
+                    }, labelOf(item) || item.id)))),
+
+                h('section', { className: 'dsx-section' },
+                  h('div', { className: 'dsx-section-title' }, h('span', null, t('style.heading'))),
+                  h('div', { className: 'dsx-chips' },
+                    (engine ? engine.styles : []).map((item) => h(Chip, {
+                      key: item.id,
+                      pressed: state.styleId === item.id,
+                      onClick: () => selectStyle(item.id),
+                    }, labelOf(item) || item.id)))),
+
+                h('section', { className: 'dsx-section' },
+                  h('div', { className: 'dsx-section-title' }, h('span', null, t('refine.heading'))),
+                  h('div', { className: 'dsx-chips' },
+                    REFINE_ACTIONS.map((action) => h(Chip, {
+                      key: action.id,
+                      onClick: () => refine(action),
+                    }, t(action.labelKey))))),
+
+                h('section', { className: 'dsx-section dsx-history-section' },
+                  h('div', { className: 'dsx-section-title' },
+                    h('span', null, t('history.heading')),
+                    state.history.length ? h('span', { className: 'dsx-count' }, String(state.history.length)) : null),
+                  state.history.length
+                    ? h('div', { className: 'dsx-history' },
+                      state.history.map((entry) => h('button', {
+                        key: entry.id,
+                        type: 'button',
+                        className: 'dsx-history-row',
+                        title: entry.label,
+                        onClick: () => restoreHistory(entry),
+                      },
+                      h('span', { className: 'dsx-history-dot' }),
+                      h('span', { className: 'dsx-history-label' }, entry.label || t('history.heading')),
+                      h('span', { className: 'dsx-history-time' }, formatTime(entry.at)))))
+                    : h('div', { className: 'dsx-empty-hint' }, t('history.empty')))),
+
+              /* Canvas */
+              h('main', { className: 'dsx-canvas' },
+                h('div', { className: 'dsx-canvas-scroll', ref: canvasRef },
+                  h('div', { className: 'dsx-artboard-wrap' },
+                    h('div', { className: 'dsx-artboard-label' },
+                      h('span', { className: 'dsx-artboard-name' }, artifact.title),
+                      isSample ? h('span', { className: 'dsx-badge' }, t('canvas.sampleBadge')) : null,
+                      artifact.imported ? h('span', { className: 'dsx-badge' }, t('canvas.importedBadge')) : null,
+                      h('span', { className: 'dsx-artboard-meta' }, t(device.labelKey) + ' ' + device.width)),
+                    h('div', { className: 'dsx-artboard', style: { width: frameWidth + 'px', height: frameHeight + 'px' } },
+                      h('div', { style: { width: device.width + 'px', height: device.height + 'px', transform: 'scale(' + state.zoom + ')', transformOrigin: 'top left' } },
+                        h('iframe', {
+                          className: 'dsx-frame',
+                          title: t('canvas.frameTitle'),
+                          sandbox: '',
+                          srcDoc: artifact.html,
+                          style: { width: device.width + 'px', height: device.height + 'px' },
+                        }))))))),
+
+              /* Right column: design system inspector */
+              h('aside', { className: 'dsx-right' },
+                h('section', { className: 'dsx-section' },
+                  h('div', { className: 'dsx-section-title' }, h('span', null, t('inspector.heading'))),
+                  h('div', { className: 'dsx-field' },
+                    h('span', null, t('inspector.style')),
+                    h('span', { className: 'dsx-field-value' }, styleLabel(state.styleId))),
+                  h('button', { type: 'button', className: 'dsx-btn dsx-btn-block', onClick: resetStyle },
+                    h(Glyph, { name: 'reset' }),
+                    h('span', null, t('inspector.reset')))),
+
+                h('section', { className: 'dsx-section' },
+                  h('div', { className: 'dsx-section-title' }, h('span', null, t('inspector.colors'))),
+                  h(ColorField, { label: t('inspector.accent'), value: state.tokens.accent, onChange: (value) => setColor('accent', value) }),
+                  h(ColorField, { label: t('inspector.bg'), value: state.tokens.bg, onChange: (value) => setColor('bg', value) }),
+                  h(ColorField, { label: t('inspector.surface'), value: state.tokens.surface, onChange: (value) => setColor('surface', value) }),
+                  h(ColorField, { label: t('inspector.text'), value: state.tokens.text, onChange: (value) => setColor('text', value) })),
+
+                h('section', { className: 'dsx-section' },
+                  h('div', { className: 'dsx-section-title' }, h('span', null, t('inspector.typography'))),
+                  h(SelectField, {
+                    label: t('inspector.displayFont'),
+                    value: displayFontId,
+                    options: fontOptions,
+                    onChange: (value) => setFont('display', value),
+                  }),
+                  h(SelectField, {
+                    label: t('inspector.bodyFont'),
+                    value: bodyFontId,
+                    options: fontOptions,
+                    onChange: (value) => setFont('body', value),
+                  }),
+                  h(FieldRow, {
+                    label: t('inspector.scale'),
+                    control: h(Segmented, {
+                      value: state.tokens.scale,
+                      ariaLabel: t('inspector.scale'),
+                      options: SCALES.map((value) => ({ value: value, label: t('scale.' + value) })),
+                      onChange: (value) => setTokenField('scale', value),
+                    }),
+                  }),
+                  h(FieldRow, {
+                    label: t('inspector.density'),
+                    control: h(Segmented, {
+                      value: state.tokens.density,
+                      ariaLabel: t('inspector.density'),
+                      options: SCALES.map((value) => ({ value: value, label: t('density.' + value) })),
+                      onChange: (value) => setTokenField('density', value),
+                    }),
+                  }),
+                  h('div', { className: 'dsx-field' },
+                    h('span', null, t('inspector.radius')),
+                    h('span', { className: 'dsx-field-value' }, state.tokens.radius + 'px')),
+                  h('input', {
+                    className: 'dsx-range',
+                    type: 'range',
+                    min: 0,
+                    max: 28,
+                    step: 1,
+                    value: state.tokens.radius,
+                    'aria-label': t('inspector.radius'),
+                    onChange: (event) => setTokenField('radius', Number(event.target.value)),
+                  })),
+
+                h('section', { className: 'dsx-section' },
+                  h('div', { className: 'dsx-section-title' }, h('span', null, t('inspector.contrast'))),
+                  h('div', { className: 'dsx-field' },
+                    h('span', null, t('inspector.textContrast')),
+                    h(RatioBadge, { label: t('inspector.aaPass'), failLabel: t('inspector.aaFail'), ratio: textContrast })),
+                  h('div', { className: 'dsx-field' },
+                    h('span', null, t('inspector.accentContrast')),
+                    h(RatioBadge, { label: t('inspector.aaPass'), failLabel: t('inspector.aaFail'), ratio: accentContrast }))),
+
+                h('section', { className: 'dsx-section' },
+                  h('div', { className: 'dsx-section-title' }, h('span', null, t('export.heading'))),
+                  h('div', { className: 'dsx-actions' },
+                    h('button', { type: 'button', className: 'dsx-btn', onClick: downloadHtml },
+                      h(Glyph, { name: 'download' }), h('span', null, t('export.download'))),
+                    h('button', { type: 'button', className: 'dsx-btn', onClick: () => copyText(artifact.html, t('toast.copied')) },
+                      h(Glyph, { name: 'copy' }), h('span', null, t('export.copyHtml'))),
+                    h('button', { type: 'button', className: 'dsx-btn', onClick: () => copyText(JSON.stringify(state.tokens, null, 2), t('toast.copied')) },
+                      h(Glyph, { name: 'copy' }), h('span', null, t('export.copyTokens'))),
+                    h('button', { type: 'button', className: 'dsx-btn', onClick: () => copyText(buildHandoff(), t('toast.copied')) },
+                      h(Glyph, { name: 'copy' }), h('span', null, t('export.copyHandoff'))),
+                    h('button', { type: 'button', className: 'dsx-btn', onClick: openImport },
+                      h(Glyph, { name: 'import' }), h('span', null, t('export.import'))))),
+
+                h('div', { className: 'dsx-about' }, t('about.note'))),
+
+            toast ? h('div', { className: 'dsx-toast', role: 'status' }, toast) : null,
+
+            dialog === 'import' ? h('div', {
+              className: 'dsx-dialog-backdrop',
+              onMouseDown: (event) => { if (event.target === event.currentTarget) setDialog(null); },
+            },
+            h('div', { className: 'dsx-dialog', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('import.title') },
+              h('div', { className: 'dsx-dialog-title' }, t('import.title')),
+              h('p', { className: 'dsx-dialog-hint' }, t('import.hint')),
+              h('textarea', {
+                className: 'dsx-code',
+                value: importDraft,
+                placeholder: '<!doctype html>\n<html>…</html>',
+                spellCheck: false,
+                autoFocus: true,
+                onChange: (event) => setImportDraft(event.target.value),
+              }),
+              h('div', { className: 'dsx-dialog-actions' },
+                state.importedHtml
+                  ? h('button', { type: 'button', className: 'dsx-btn', onClick: restoreGenerated }, t('import.restore'))
+                  : null,
+                h('div', { className: 'dsx-spacer' }),
+                h('button', { type: 'button', className: 'dsx-btn', onClick: () => setDialog(null) }, t('import.cancel')),
+                h('button', { type: 'button', className: 'dsx-primary dsx-primary-inline', disabled: !importDraft.trim(), onClick: applyImport },
+                  h('span', null, t('import.apply')))))
+              ) : null
+          ));
+      };
+    }
+
+    /* ------------------------------------------------------------------ *
+     * Presentational pieces
+     * ------------------------------------------------------------------ */
+    function Glyph(props) {
+      const size = Number(props && props.size) || 14;
+      const stroke = { stroke: 'currentColor', strokeWidth: 1.7, strokeLinecap: 'round', strokeLinejoin: 'round' };
+      const base = { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', 'aria-hidden': true, focusable: false, style: { display: 'block' } };
+      let path = null;
+      switch (props && props.name) {
+        case 'sparkle':
+          path = h('path', Object.assign({ d: 'M12 3.6l1.9 5 5 1.9-5 1.9-1.9 5-1.9-5-5-1.9 5-1.9z' }, stroke));
+          break;
+        case 'moon':
+          path = h('path', Object.assign({ d: 'M20 14.2A8.2 8.2 0 019.8 4 8.4 8.4 0 1020 14.2z' }, stroke));
+          break;
+        case 'sun':
+          path = h(React.Fragment, null,
+            h('circle', Object.assign({ cx: 12, cy: 12, r: 4 }, stroke)),
+            h('path', Object.assign({ d: 'M12 2.6v2.2M12 19.2v2.2M4.6 4.6l1.6 1.6M17.8 17.8l1.6 1.6M2.6 12h2.2M19.2 12h2.2M4.6 19.4l1.6-1.6M17.8 6.2l1.6-1.6' }, stroke)));
+          break;
+        case 'download':
+          path = h('path', Object.assign({ d: 'M12 4v10m0 0l-3.6-3.6M12 14l3.6-3.6M4.8 16.8v1.4A1.8 1.8 0 006.6 20h10.8a1.8 1.8 0 001.8-1.8v-1.4' }, stroke));
+          break;
+        case 'copy':
+          path = h(React.Fragment, null,
+            h('rect', Object.assign({ x: 9, y: 9, width: 11, height: 11, rx: 2 }, stroke)),
+            h('path', Object.assign({ d: 'M15 9V6.2A2.2 2.2 0 0012.8 4H6.2A2.2 2.2 0 004 6.2v6.6A2.2 2.2 0 006.2 15H9' }, stroke)));
+          break;
+        case 'import':
+          path = h('path', Object.assign({ d: 'M12 16.5V5.5m0 0L8.4 9.1M12 5.5l3.6 3.6M4.8 17.2v1A1.8 1.8 0 006.6 20h10.8a1.8 1.8 0 001.8-1.8v-1' }, stroke));
+          break;
+        case 'fit':
+          path = h('path', Object.assign({ d: 'M9 4H4v5M15 4h5v5M15 20h5v-5M9 20H4v-5' }, stroke));
+          break;
+        case 'reset':
+          path = h(React.Fragment, null,
+            h('path', Object.assign({ d: 'M4.5 11.5a7.5 7.5 0 111.9 6.4' }, stroke)),
+            h('path', Object.assign({ d: 'M4 17.4v-5h5' }, stroke)));
+          break;
+        case 'plus':
+          path = h('path', Object.assign({ d: 'M12 5.5v13M5.5 12h13' }, stroke));
+          break;
+        case 'minus':
+          path = h('path', Object.assign({ d: 'M5.5 12h13' }, stroke));
+          break;
+        case 'check':
+          path = h('path', Object.assign({ d: 'M5 12.8l4.2 4.2L19 7.2' }, stroke));
+          break;
+        case 'close':
+          path = h('path', Object.assign({ d: 'M6 6l12 12M18 6L6 18' }, stroke));
+          break;
+        default:
+          path = h('circle', Object.assign({ cx: 12, cy: 12, r: 7 }, stroke));
+      }
+      return h('svg', base, path);
+    }
+
+    function DesignStudioMark(props) {
+      const size = Number(props && props.size) || 18;
+      const active = props && props.active;
+      const weight = active ? 1.95 : 1.65;
+      return h('svg', { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', 'aria-hidden': true, focusable: false, style: { display: 'block', opacity: active ? 1 : 0.9 } },
+        h('rect', { x: 3, y: 3.4, width: 18, height: 17.2, rx: 3.2, stroke: 'currentColor', strokeWidth: weight }),
+        h('path', { d: 'M3 9.2h18M9.2 9.2v11.4', stroke: 'currentColor', strokeWidth: weight, strokeLinecap: 'round' }));
+    }
+
+    function Chip(props) {
+      return h('button', {
+        type: 'button',
+        className: 'dsx-chip',
+        title: props.title,
+        'aria-pressed': props.pressed ? 'true' : 'false',
+        onClick: props.onClick,
+      }, props.children);
+    }
+
+    function Segmented(props) {
+      const options = props.options || [];
+      return h('div', { className: 'dsx-seg', role: 'group', 'aria-label': props.ariaLabel },
+        options.map((option) => h('button', {
+          key: option.value,
+          type: 'button',
+          title: option.title,
+          'aria-pressed': props.value === option.value ? 'true' : 'false',
+          onClick: () => props.onChange(option.value),
+        }, option.label)));
+    }
+
+    function FieldRow(props) {
+      return h('div', { className: 'dsx-field' }, h('span', null, props.label), props.control);
+    }
+
+    function RatioBadge(props) {
+      const ratio = Number(props.ratio) || 1;
+      const pass = ratio >= 4.5;
+      return h('span', { className: 'dsx-ratio ' + (pass ? 'dsx-ratio-ok' : 'dsx-ratio-bad'), title: ratio.toFixed(2) + ':1' },
+        ratio.toFixed(1) + ':1',
+        h('span', { className: 'dsx-ratio-tag' }, pass ? props.label : props.failLabel));
+    }
+
+    function ColorField(props) {
+      const [draft, setDraft] = useState(props.value);
+      useEffect(() => { setDraft(props.value); }, [props.value]);
+      const commit = () => {
+        const hex = parseColor(draft);
+        if (hex) props.onChange(hex);
+        else setDraft(props.value);
+      };
+      return h('div', { className: 'dsx-field' },
+        h('span', null, props.label),
+        h('div', { className: 'dsx-colorfield' },
+          h('input', {
+            type: 'color',
+            className: 'dsx-color',
+            value: props.value,
+            'aria-label': props.label,
+            onChange: (event) => props.onChange(event.target.value),
+          }),
+          h('input', {
+            className: 'dsx-input dsx-hex',
+            value: draft,
+            spellCheck: false,
+            'aria-label': props.label + ' hex',
+            onChange: (event) => setDraft(event.target.value),
+            onBlur: commit,
+            onKeyDown: (event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                commit();
+              }
+            },
+          })));
+    }
+
+    function SelectField(props) {
+      return h('label', { className: 'dsx-field' },
+        h('span', null, props.label),
+        h('select', {
+          className: 'dsx-input dsx-select',
+          value: props.value,
+          'aria-label': props.label,
+          onChange: (event) => props.onChange(event.target.value),
+        }, (props.options || []).map((option) => h('option', { key: option.value, value: option.value }, option.label))));
+    }
+
+    /* ------------------------------------------------------------------ *
+     * Styles: host theme tokens only (artwork lives in the iframe document)
+     * ------------------------------------------------------------------ */
+    // Chrome styles use host theme tokens only. Two literal colours remain on
+    // purpose: the white artboard matte behind the sandboxed design document
+    // (artwork surface), and token fallbacks inside generated documents.
+    const STYLE_TEXT = [
+      '.dsx-root{position:relative;display:flex;flex-direction:column;height:100%;min-height:440px;overflow:hidden;',
+      'background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font-family:inherit;}',
+      '.dsx-topbar{display:flex;align-items:center;gap:8px;height:52px;padding:0 14px;flex:0 0 auto;',
+      'border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-base);}',
+      '.dsx-brand{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;letter-spacing:.01em;}',
+      '.dsx-divider{width:1px;height:18px;background:var(--dsw-alias-border-l1);flex:0 0 auto;}',
+      '.dsx-project-title{font-size:12px;color:var(--dsw-alias-label-secondary);max-width:220px;overflow:hidden;',
+      'text-overflow:ellipsis;white-space:nowrap;}',
+      '.dsx-spacer{flex:1 1 auto;min-width:4px;}',
+      '.dsx-zoom{font-size:11px;color:var(--dsw-alias-label-secondary);min-width:34px;text-align:center;font-variant-numeric:tabular-nums;}',
+      '.dsx-toolbtn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:28px;min-width:28px;',
+      'padding:0 7px;border-radius:7px;border:1px solid transparent;background:transparent;color:var(--dsw-alias-label-secondary);',
+      'font:inherit;font-size:12px;cursor:pointer;}',
+      '.dsx-toolbtn:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);}',
+      '.dsx-toolbtn:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px;}',
+      '.dsx-toolbtn[aria-pressed="true"]{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l1);}',
+      '.dsx-toolbtn-strong{border-color:var(--dsw-alias-border-l1);color:var(--dsw-alias-label-primary);padding:0 10px;}',
+      '.dsx-toolbtn-label{white-space:nowrap;}',
+      '.dsx-body{display:flex;flex:1 1 auto;min-height:0;}',
+      '.dsx-left{flex:0 0 316px;width:316px;display:flex;flex-direction:column;overflow:auto;',
+      'border-right:1px solid var(--dsw-alias-border-l1);}',
+      '.dsx-section{display:flex;flex-direction:column;gap:9px;padding:13px 14px;border-bottom:1px solid var(--dsw-alias-border-l1);}',
+      '.dsx-section:last-child{border-bottom:0;}',
+      '.dsx-section-title{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;',
+      'letter-spacing:.07em;text-transform:uppercase;color:var(--dsw-alias-label-secondary);font-weight:600;}',
+      '.dsx-linkbtn{border:0;background:transparent;color:var(--dsw-alias-brand-primary);font:inherit;font-size:11px;',
+      'text-transform:none;letter-spacing:0;cursor:pointer;padding:0;}',
+      '.dsx-linkbtn:hover{text-decoration:underline;}',
+      '.dsx-input{height:28px;min-width:0;padding:0 9px;border-radius:7px;border:1px solid var(--dsw-alias-border-l1);',
+      'background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;}',
+      '.dsx-input:focus{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:-1px;}',
+      '.dsx-project-input{width:100%;height:26px;}',
+      '.dsx-textarea{width:100%;min-height:92px;resize:vertical;padding:9px 10px;border-radius:8px;',
+      'border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);',
+      'font:inherit;font-size:12.5px;line-height:1.6;}',
+      '.dsx-textarea:focus{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:-1px;}',
+      '.dsx-hint{font-size:11px;color:var(--dsw-alias-label-secondary);}',
+      '.dsx-primary{display:flex;align-items:center;justify-content:center;gap:8px;height:32px;padding:0 12px;',
+      'border-radius:8px;border:1px solid var(--dsw-alias-brand-primary);background:var(--dsw-alias-brand-primary);',
+      'color:var(--dsw-alias-label-primary-inverted);font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;}',
+      '.dsx-primary:hover{filter:brightness(1.06);}',
+      '.dsx-primary:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px;}',
+      '.dsx-primary:disabled{opacity:.5;cursor:default;}',
+      '.dsx-primary-inline{width:auto;height:30px;}',
+      '.dsx-examples{display:flex;flex-direction:column;gap:6px;padding-top:4px;}',
+      '.dsx-example{text-align:left;border:1px dashed var(--dsw-alias-border-l1);background:transparent;',
+      'color:var(--dsw-alias-label-secondary);border-radius:7px;padding:7px 9px;font:inherit;font-size:11.5px;',
+      'line-height:1.5;cursor:pointer;}',
+      '.dsx-example:hover{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l2);',
+      'background:var(--dsw-alias-bg-layer-2);}',
+      '.dsx-chips{display:flex;flex-wrap:wrap;gap:6px;}',
+      '.dsx-chip{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--dsw-alias-border-l1);',
+      'background:transparent;color:var(--dsw-alias-label-secondary);border-radius:999px;padding:4px 10px;',
+      'font:inherit;font-size:11.5px;cursor:pointer;line-height:1.4;}',
+      '.dsx-chip:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);}',
+      '.dsx-chip:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px;}',
+      '.dsx-chip[aria-pressed="true"]{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-brand-primary);',
+      'border-color:var(--dsw-alias-brand-primary);}',
+      '.dsx-history-section{padding-bottom:20px;}',
+      '.dsx-count{font-size:10px;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-2);',
+      'border-radius:999px;padding:1px 6px;}',
+      '.dsx-history{display:flex;flex-direction:column;gap:1px;}',
+      '.dsx-history-row{display:flex;align-items:center;gap:8px;width:100%;padding:6px 7px;border:0;border-radius:6px;',
+      'background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11.5px;text-align:left;cursor:pointer;}',
+      '.dsx-history-row:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);}',
+      '.dsx-history-dot{width:5px;height:5px;border-radius:50%;background:var(--dsw-alias-brand-primary);flex:0 0 auto;opacity:.75;}',
+      '.dsx-history-label{flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
+      '.dsx-history-time{font-size:10px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;}',
+      '.dsx-empty-hint{font-size:11.5px;color:var(--dsw-alias-label-secondary);line-height:1.6;}',
+      '.dsx-canvas{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;position:relative;overflow:hidden;}',
+      '.dsx-canvas-scroll{flex:1 1 auto;overflow:auto;padding:26px 30px 34px;display:flex;justify-content:center;align-items:flex-start;',
+      'background-image:radial-gradient(circle,var(--dsw-alias-border-l1) 1px,transparent 1px);background-size:18px 18px;}',
+      '.dsx-artboard-wrap{display:flex;flex-direction:column;gap:8px;flex:0 0 auto;}',
+      '.dsx-artboard-label{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--dsw-alias-label-secondary);}',
+      '.dsx-artboard-name{font-weight:600;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;',
+      'white-space:nowrap;max-width:420px;}',
+      '.dsx-artboard-meta{color:var(--dsw-alias-label-secondary);}',
+      '.dsx-badge{font-size:10px;border:1px solid var(--dsw-alias-border-l1);border-radius:999px;padding:1px 6px;color:var(--dsw-alias-label-secondary);}',
+      '.dsx-artboard{position:relative;overflow:hidden;border-radius:10px;background:#fff;',
+      'border:1px solid var(--dsw-alias-border-l1);box-shadow:var(--dsw-shadow-lv2);flex:0 0 auto;}',
+      '.dsx-frame{display:block;border:0;background:#fff;}',
+      '.dsx-right{flex:0 0 272px;width:272px;overflow:auto;border-left:1px solid var(--dsw-alias-border-l1);}',
+      '.dsx-field{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:11.5px;',
+      'color:var(--dsw-alias-label-secondary);min-height:28px;}',
+      '.dsx-field-value{color:var(--dsw-alias-label-primary);font-size:11.5px;}',
+      '.dsx-colorfield{display:flex;align-items:center;gap:6px;}',
+      '.dsx-color{width:34px;height:26px;padding:0;border:1px solid var(--dsw-alias-border-l1);border-radius:6px;',
+      'background:transparent;cursor:pointer;}',
+      '.dsx-hex{width:74px;height:26px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;text-transform:lowercase;}',
+      '.dsx-select{height:26px;max-width:150px;padding:0 6px;}',
+      '.dsx-seg{display:inline-flex;border:1px solid var(--dsw-alias-border-l1);border-radius:7px;overflow:hidden;}',
+      '.dsx-seg button{border:0;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;',
+      'padding:5px 8px;cursor:pointer;}',
+      '.dsx-seg button:hover{background:var(--dsw-alias-bg-layer-2);}',
+      '.dsx-seg button[aria-pressed="true"]{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);}',
+      '.dsx-select:focus,.dsx-range:focus{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:-1px;}',
+      '.dsx-range{width:100%;accent-color:var(--dsw-alias-brand-primary);}',
+      '.dsx-ratio{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;padding:1px 7px;border-radius:999px;',
+      'border:1px solid currentColor;font-variant-numeric:tabular-nums;}',
+      '.dsx-ratio-ok{color:var(--dsw-alias-state-success-primary);}',
+      '.dsx-ratio-bad{color:var(--dsw-alias-state-error-primary);}',
+      '.dsx-ratio-tag{opacity:.85;}',
+      '.dsx-actions{display:flex;flex-wrap:wrap;gap:6px;}',
+      '.dsx-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:28px;padding:0 9px;',
+      'border-radius:7px;border:1px solid var(--dsw-alias-border-l1);background:transparent;',
+      'color:var(--dsw-alias-label-primary);font:inherit;font-size:11.5px;cursor:pointer;}',
+      '.dsx-btn:hover{background:var(--dsw-alias-bg-layer-2);}',
+      '.dsx-btn:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px;}',
+      '.dsx-btn-block{width:100%;}',
+      '.dsx-about{padding:12px 14px 18px;font-size:10.5px;line-height:1.6;color:var(--dsw-alias-label-secondary);}',
+      '.dsx-toast{position:absolute;left:50%;bottom:20px;transform:translateX(-50%);max-width:80%;',
+      'background:var(--dsw-alias-bg-overlay);border:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-primary);',
+      'padding:7px 14px;border-radius:999px;font-size:12px;box-shadow:var(--dsw-shadow-lv2);z-index:20;}',
+      '.dsx-dialog-backdrop{position:absolute;inset:0;z-index:30;display:flex;align-items:center;justify-content:center;',
+      'background:var(--dsw-alias-bg-mask-1);padding:24px;}',
+      '.dsx-dialog{width:min(580px,100%);display:flex;flex-direction:column;gap:10px;padding:16px;border-radius:12px;',
+      'background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);box-shadow:var(--dsw-shadow-lv3);}',
+      '.dsx-dialog-title{font-size:13px;font-weight:600;}',
+      '.dsx-dialog-hint{margin:0;font-size:11.5px;line-height:1.6;color:var(--dsw-alias-label-secondary);}',
+      '.dsx-code{width:100%;height:210px;resize:vertical;padding:9px 10px;border-radius:8px;',
+      'border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);',
+      'font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;line-height:1.5;}',
+      '.dsx-code:focus{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:-1px;}',
+      '.dsx-dialog-actions{display:flex;align-items:center;gap:8px;}',
+      '@media (max-width:1180px){.dsx-left{flex-basis:280px;width:280px;}.dsx-right{flex-basis:244px;width:244px;}}',
+      '@media (max-width:980px){.dsx-left{flex-basis:244px;width:244px;}.dsx-right{display:none;}}',
+      '@media (max-width:760px){.dsx-left{display:none;}.dsx-toolbtn-label{display:none;}}',
+    ].join('\n');
+
+    /* ------------------------------------------------------------------ *
+     * Plugin definition
+     * ------------------------------------------------------------------ */
+    return {
+      inject: ['slots', 'locale'],
+      apply(ctx) {
+        let t;
+        try {
+          const dictEn = STRINGS.en;
+          const dictZh = STRINGS.zh;
+          [
+            ['en', dictEn],
+            ['zh', dictZh],
+            ['zh-CN', dictZh],
+            ['zh-TW', dictZh],
+            ['zh-Hans', dictZh],
+          ].forEach((pair) => {
+            try {
+              ctx.effect(() => ctx.locale.register(LOCALE_NS, pair[0], pair[1]));
+            } catch (error) {
+              /* A host without this dictionary slot still renders English. */
+            }
+          });
+          t = ctx.locale.bind(LOCALE_NS);
+        } catch (error) {
+          t = (key) => (STRINGS.en[key] !== undefined ? STRINGS.en[key] : key);
+        }
+
+        const panel = createDesignPanel(ctx, t);
+
+        ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
+          name: 'sidebar.panellist',
+          id: PANEL_ID,
+          order: 5,
+          label: () => t('panel.title'),
+        }, function SidebarDesignStudioIcon(props) {
+          return h(DesignStudioMark, { size: Number(props && props.size) || 16, active: Boolean(props && props.active) });
+        }));
+
+        ctx.slots.inject('main', () => ctx.slots.register({
+          name: 'main',
+          key: PANEL_ID,
+        }, panel));
+      },
+    };
+  },
+});

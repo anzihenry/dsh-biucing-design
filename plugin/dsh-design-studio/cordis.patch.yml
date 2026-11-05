@@ -1,0 +1,5 @@
+# Design Studio: the Host row carries the bundle identity only; the whole
+# feature lives in the Client half (left-sidebar panel entry + central panel).
+- insert:
+    - id: design-studio
+      name: '@local/dsh-design-studio'
