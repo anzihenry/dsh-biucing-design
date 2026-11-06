@@ -153,6 +153,36 @@ Host 注册**只读**路由 `/design-studio/projects`，面板项目区「已发
 验证：修复后审计输出 `brand: flex/row/nowrap ws=nowrap rect=114x18`，并且对样式表做了逐类检查
 （96 个 `dsx-*` 选择器全部被浏览器解析，127 条规则）。
 
+## 2.8 v1.5：面板内的真实 AI 生成（不再只是模板引擎）
+
+新增 `POST /design-studio/generate`：Host 通过 `ctx.llm` + `agentDefaultModel` 调用当前默认模型，
+把需求变成完整 HTML 设计，面板渲染并可继续自然语言修改。生成失败自动回退模板引擎。
+
+真实工具链验收（默认模型 `deepseek-account/deepseek-flash`）：
+
+1. `design_verify_ui({ steps: [
+     { type: ".dsx-textarea", text: "A landing page for an API monitoring product ..." },
+     { click: "Generate with AI" }, { wait: 90000 }, { screenshot: "ai-generated" } ] })`
+2. 单次生成约 53 秒，返回完整文档（32KB，`complete: true`，无截断），标题自动写入项目名
+3. 画板标签显示 `Beacon API Monitoring Landing` + `AI` 徽章，inspector 采用模型输出的 tokens
+   （accent `#7ee787`、bg `#0b0e14`、radius `6px`），对比度 16.8:1 / 11.8:1 AA
+4. 审计 PASS，无 console 错误；「REFINE WITH AI」区域可直接输入下一条修改指令
+
+![面板内 AI 生成](screenshots/design-studio-ai-generated.png)
+
+模型返回的完整落地页（首屏、代码示例、功能卡、metrics、接入步骤、三档定价、CTA、footer）：
+
+![AI 生成的完整设计](screenshots/design-studio-ai-landing-full.png)
+
+工程细节：
+
+- 输出协议用 `<!--design-meta {...}-->` + 完整 HTML，避免把 HTML 塞进 JSON 字符串导致转义失败
+- 生成时优先使用低 reasoning effort 和更大的输出预算（32000 → 16000 回退），避免
+  chat 默认的 high reasoning 吃掉全部输出预算导致截断
+- 解析器兼容「带注释元数据 / JSON fence / 裸 HTML / 被截断的 design-html」，输出经过消毒
+- 路由只允许 GET（可用性探测）与 POST（生成），同源/Origin 校验、6 次/分钟限流、串行执行、
+  320KB 请求上限、120 秒超时
+
 ## 3. 核验中发现并修复的问题
 
 | 问题 | 证据 | 修复 |

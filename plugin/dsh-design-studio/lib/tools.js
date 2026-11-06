@@ -416,7 +416,7 @@ async function runSteps(client, sessionId, steps, outputDir, options = {}) {
         result.ok = Boolean(outcome && outcome.selected)
         if (!result.ok) result.error = (outcome && outcome.reason) || 'target not found'
       } else if (action === 'wait') {
-        const ms = clamp(Number(step.ms) || 300, 0, 5000)
+        const ms = clamp(Number(step.ms) || 300, 0, 120000)
         await delay(ms)
         result.ok = true
         result.ms = ms
@@ -726,7 +726,7 @@ export function designVerifyUiTool(ctx) {
               value: { type: 'string', description: 'Option value for action="select".' },
               x: { type: 'number', description: 'Horizontal fraction (0..1) for action="clickAt".' },
               y: { type: 'number', description: 'Vertical fraction (0..1) for action="clickAt".' },
-              ms: { type: 'number', description: 'Wait duration for action="wait".' },
+              ms: { type: 'number', description: 'Wait duration for action="wait" (0-120000; generation can take ~90s).' },
             },
             required: ['action'],
             additionalProperties: false,

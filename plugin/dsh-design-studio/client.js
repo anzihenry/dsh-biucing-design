@@ -1571,6 +1571,21 @@ function createDesignEngine() {
         'brief.placeholder': 'Describe the design: goal, layout, content, audience. Example: a calm landing page for an API product with a hero, code sample and pricing.',
         'brief.shortcut': '⌘/Ctrl + Enter to generate',
         'brief.generate': 'Generate design',
+        'brief.generateAi': 'Generate with AI',
+        'brief.generating': 'Generating design…',
+        'brief.generatingHint': 'AI is composing a complete design (about 30–90s).',
+        'brief.aiUnavailable': 'AI unavailable · template mode',
+        'brief.aiMode': 'AI',
+        'ai.refineHeading': 'Refine with AI',
+        'ai.refinePlaceholder': 'e.g. Make the hero headline larger and switch the accent to teal',
+        'ai.refine': 'Apply with AI',
+        'ai.refining': 'Revising…',
+        'ai.refinedLabel': 'AI revision',
+        'toast.aiGenerated': 'AI design generated',
+        'toast.aiRefined': 'AI revision applied',
+        'toast.aiFailed': 'AI generation failed',
+        'toast.aiFallback': 'AI failed — used the template engine instead',
+        'toast.aiTruncated': 'AI output was truncated; refine or retry',
         'brief.examplesHeading': 'Try one',
         'ex.landing': 'A calm landing page for an API product with a hero, code sample and pricing',
         'ex.dashboard': 'A revenue dashboard with KPI cards, a monthly chart and a region filter',
@@ -1592,6 +1607,7 @@ function createDesignEngine() {
         'history.empty': 'Generated versions appear here.',
         'canvas.importedTitle': 'Imported HTML',
         'canvas.importedBadge': 'imported',
+        'canvas.aiBadge': 'AI',
         'canvas.sampleBadge': 'sample',
         'canvas.frameTitle': 'Design preview',
         'device.group': 'Canvas size',
@@ -1702,6 +1718,21 @@ function createDesignEngine() {
         'brief.placeholder': '描述你想要的设计：目标、布局、内容、受众。例如：一个面向 API 产品的克制落地页，包含首屏、代码示例与定价。',
         'brief.shortcut': '⌘/Ctrl + Enter 生成',
         'brief.generate': '生成设计',
+        'brief.generateAi': 'AI 生成设计',
+        'brief.generating': '正在生成设计…',
+        'brief.generatingHint': 'AI 正在生成完整设计（约 30–90 秒）。',
+        'brief.aiUnavailable': 'AI 不可用 · 模板模式',
+        'brief.aiMode': 'AI',
+        'ai.refineHeading': '用 AI 继续修改',
+        'ai.refinePlaceholder': '例如：把首屏标题放大，并把品牌色换成青绿色',
+        'ai.refine': '用 AI 应用修改',
+        'ai.refining': '正在修改…',
+        'ai.refinedLabel': 'AI 修改',
+        'toast.aiGenerated': 'AI 设计已生成',
+        'toast.aiRefined': 'AI 修改已应用',
+        'toast.aiFailed': 'AI 生成失败',
+        'toast.aiFallback': 'AI 失败，已改用模板引擎',
+        'toast.aiTruncated': 'AI 输出被截断，可继续修改或重试',
         'brief.examplesHeading': '试试这些',
         'ex.landing': '一个面向 API 产品的克制落地页，包含首屏、代码示例与定价',
         'ex.dashboard': '一个营收仪表盘，包含 KPI 卡片、月度图表与区域筛选',
@@ -1723,6 +1754,7 @@ function createDesignEngine() {
         'history.empty': '生成的版本会出现在这里。',
         'canvas.importedTitle': '导入的 HTML',
         'canvas.importedBadge': '导入',
+        'canvas.aiBadge': 'AI',
         'canvas.sampleBadge': '示例',
         'canvas.frameTitle': '设计预览',
         'device.group': '画布尺寸',
@@ -2005,6 +2037,7 @@ function createDesignEngine() {
         history: [],
         importedHtml: '',
         importedTitle: '',
+        artifactSource: 'engine',
         comments: [],
       }, overrides || {});
     }
@@ -2022,6 +2055,7 @@ function createDesignEngine() {
         history: state.history,
         importedHtml: state.importedHtml,
         importedTitle: state.importedTitle,
+        artifactSource: state.artifactSource,
         comments: state.comments,
       };
     }
@@ -2036,6 +2070,9 @@ function createDesignEngine() {
         template: engine && engine.templates.some((item) => item.id === entry.template) ? entry.template : initialTemplateId(),
         styleId: engine && engine.styles.some((item) => item.id === entry.styleId) ? entry.styleId : (defaultStyle() ? defaultStyle().id : 'minimal'),
         tokens: ensureTokens(entry.tokens),
+        artifactSource: ['engine', 'ai', 'import'].indexOf(entry.artifactSource) === -1 ? 'engine' : entry.artifactSource,
+        externalHtml: typeof entry.externalHtml === 'string' ? entry.externalHtml.slice(0, 200000) : '',
+        externalTitle: typeof entry.externalTitle === 'string' ? entry.externalTitle : '',
       };
     }
 
@@ -2070,6 +2107,7 @@ function createDesignEngine() {
         history: history,
         importedHtml: typeof raw.importedHtml === 'string' ? raw.importedHtml : '',
         importedTitle: typeof raw.importedTitle === 'string' ? raw.importedTitle : '',
+        artifactSource: ['engine', 'ai', 'import'].indexOf(raw.artifactSource) === -1 ? 'engine' : raw.artifactSource,
         comments: sanitizeComments(raw.comments),
       };
     }
@@ -2162,6 +2200,10 @@ function createDesignEngine() {
         const [commentMode, setCommentMode] = useState(false);
         const [commentDraft, setCommentDraft] = useState(null);
         const [compareMode, setCompareMode] = useState(false);
+        const [aiInfo, setAiInfo] = useState({ available: false });
+        const [aiBusy, setAiBusy] = useState(false);
+        const [aiError, setAiError] = useState(null);
+        const [aiRefineDraft, setAiRefineDraft] = useState('');
         const [canvasWidth, setCanvasWidth] = useState(0);
         const [renderTokens, setRenderTokens] = useState(state.tokens);
         const dialogReturnFocus = useRef(null);
@@ -2209,6 +2251,29 @@ function createDesignEngine() {
           });
           observer.observe(element);
           return () => observer.disconnect();
+        }, []);
+
+        useEffect(() => {
+          let cancelled = false;
+          if (typeof fetch !== 'function') {
+            setAiInfo({ available: false });
+            return () => { cancelled = true; };
+          }
+          fetch('/design-studio/generate', { headers: { accept: 'application/json' }, cache: 'no-store' })
+            .then((response) => (response.ok ? response.json() : Promise.reject(new Error('HTTP ' + response.status))))
+            .then((info) => {
+              if (cancelled) return;
+              setAiInfo({
+                available: Boolean(info && info.available),
+                provider: info && info.provider,
+                model: info && info.model,
+                reason: info && info.reason,
+              });
+            })
+            .catch(() => {
+              if (!cancelled) setAiInfo({ available: false });
+            });
+          return () => { cancelled = true; };
         }, []);
 
         useEffect(() => {
@@ -2324,6 +2389,9 @@ function createDesignEngine() {
               template: template,
               styleId: style ? style.id : previous.styleId,
               tokens: tokens,
+              artifactSource: 'engine',
+              externalHtml: '',
+              externalTitle: '',
             };
             return Object.assign({}, previous, {
               brief: brief,
@@ -2334,14 +2402,120 @@ function createDesignEngine() {
               history: [entry].concat(previous.history).slice(0, 12),
               importedHtml: '',
               importedTitle: '',
+              artifactSource: 'engine',
             });
           });
           notify(t('toast.generated'));
         }, [notify, t, templateLabel]);
 
+        const applyAiPayload = useCallback((payload, brief) => {
+          if (!payload || typeof payload.html !== 'string' || !payload.html) throw new Error('The model returned no HTML.');
+          const title = String(payload.title || brief.slice(0, 60) || t('project.untitled')).trim();
+          setState((previous) => {
+            const tokens = payload.tokens
+              ? withDerived(ensureTokens(Object.assign({}, previous.tokens, payload.tokens)))
+              : previous.tokens;
+            const entry = {
+              id: uniqueId(),
+              at: Date.now(),
+              label: title,
+              brief: brief,
+              template: previous.template,
+              styleId: previous.styleId,
+              tokens: tokens,
+              artifactSource: 'ai',
+              externalHtml: payload.html.slice(0, 200000),
+              externalTitle: title,
+            };
+            return Object.assign({}, previous, {
+              brief: brief,
+              draftBrief: brief,
+              tokens: tokens,
+              projectName: previous.projectName || title,
+              importedHtml: payload.html,
+              importedTitle: title,
+              artifactSource: 'ai',
+              history: [entry].concat(previous.history).slice(0, 12),
+            });
+          });
+        }, [t]);
+
+        const generateWithAi = useCallback(async (rawBrief) => {
+          const brief = String(rawBrief == null ? '' : rawBrief).trim();
+          if (!brief) {
+            notify(t('toast.needBrief'));
+            return;
+          }
+          if (aiBusy) return;
+          setAiBusy(true);
+          setAiError(null);
+          try {
+            const response = await fetch('/design-studio/generate', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                brief: brief,
+                template: state.template,
+                styleId: state.styleId,
+                tokens: state.tokens,
+              }),
+            });
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok || !payload || !payload.ok) {
+              throw new Error((payload && payload.error) || ('HTTP ' + response.status));
+            }
+            applyAiPayload(payload, brief);
+            notify(payload.truncated ? t('toast.aiTruncated') : t('toast.aiGenerated'));
+          } catch (error) {
+            setAiError(String((error && error.message) || error));
+            generateFrom(brief);
+            notify(t('toast.aiFallback'));
+          } finally {
+            setAiBusy(false);
+          }
+        }, [aiBusy, applyAiPayload, generateFrom, notify, state.styleId, state.template, state.tokens, t]);
+
+        const refineWithAi = useCallback(async () => {
+          const instruction = aiRefineDraft.trim();
+          if (!instruction || aiBusy) return;
+          setAiBusy(true);
+          setAiError(null);
+          try {
+            const response = await fetch('/design-studio/generate', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                brief: state.brief || state.draftBrief,
+                html: artifact.html,
+                instruction: instruction,
+                template: state.template,
+                styleId: state.styleId,
+                tokens: state.tokens,
+              }),
+            });
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok || !payload || !payload.ok) {
+              throw new Error((payload && payload.error) || ('HTTP ' + response.status));
+            }
+            applyAiPayload(payload, state.brief || state.draftBrief);
+            setAiRefineDraft('');
+            notify(payload.truncated ? t('toast.aiTruncated') : t('toast.aiRefined'));
+          } catch (error) {
+            setAiError(String((error && error.message) || error));
+            notify(t('toast.aiFailed'));
+          } finally {
+            setAiBusy(false);
+          }
+        }, [aiBusy, aiRefineDraft, applyAiPayload, artifact, notify, state.brief, state.draftBrief, state.styleId, state.template, state.tokens, t]);
+
         const handleGenerate = useCallback(() => {
+          if (aiBusy) return;
+          if (aiInfo.available) {
+            generateWithAi(state.draftBrief);
+            return;
+          }
           generateFrom(state.draftBrief);
-        }, [generateFrom, state.draftBrief]);
+        }, [aiBusy, aiInfo.available, generateFrom, generateWithAi, state.draftBrief]);
 
         const switchProject = useCallback((id) => {
           setState((previous) => {
@@ -2584,8 +2758,9 @@ function createDesignEngine() {
             template: entry.template,
             styleId: entry.styleId,
             tokens: ensureTokens(entry.tokens),
-            importedHtml: '',
-            importedTitle: '',
+            importedHtml: entry.externalHtml || '',
+            importedTitle: entry.externalTitle || '',
+            artifactSource: entry.artifactSource || 'engine',
           }));
         }, []);
 
@@ -2704,7 +2879,7 @@ function createDesignEngine() {
         const applyImport = useCallback(() => {
           const html = importDraft.trim();
           if (!html) return;
-          patch({ importedHtml: html, importedTitle: t('canvas.importedTitle') });
+          patch({ importedHtml: html, importedTitle: t('canvas.importedTitle'), artifactSource: 'import' });
           setDialog(null);
           notify(t('toast.imported'));
         }, [importDraft, notify, patch, t]);
@@ -2973,16 +3148,52 @@ function createDesignEngine() {
                     },
                   }),
                   h('div', { className: 'dsx-hint' }, t('brief.shortcut')),
-                  h('button', { type: 'button', className: 'dsx-primary', onClick: handleGenerate },
+                  h('button', { type: 'button', className: 'dsx-primary', onClick: handleGenerate, disabled: aiBusy },
                     h(Glyph, { name: 'sparkle' }),
-                    h('span', null, t('brief.generate'))),
+                    h('span', null, aiBusy ? t('brief.generating') : (aiInfo.available ? t('brief.generateAi') : t('brief.generate')))),
+                  h('div', { className: 'dsx-ai-status' },
+                    aiBusy
+                      ? t('brief.generatingHint')
+                      : aiInfo.available
+                        ? t('brief.aiMode') + ' · ' + (aiInfo.provider || '') + '/' + (aiInfo.model || '')
+                        : t('brief.aiUnavailable')),
+                  aiError ? h('div', { className: 'dsx-ai-error' }, aiError) : null,
+                  aiInfo.available && artifact.imported
+                    ? h('div', { className: 'dsx-ai-refine' },
+                      h('div', { className: 'dsx-section-title' }, h('span', null, t('ai.refineHeading'))),
+                      h('input', {
+                        className: 'dsx-input',
+                        value: aiRefineDraft,
+                        placeholder: t('ai.refinePlaceholder'),
+                        'aria-label': t('ai.refineHeading'),
+                        spellCheck: false,
+                        disabled: aiBusy,
+                        onChange: (event) => setAiRefineDraft(event.target.value),
+                        onKeyDown: (event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault();
+                            refineWithAi();
+                          }
+                        },
+                      }),
+                      h('button', {
+                        type: 'button',
+                        className: 'dsx-btn dsx-btn-block',
+                        disabled: aiBusy || !aiRefineDraft.trim(),
+                        onClick: refineWithAi,
+                      }, aiBusy ? t('ai.refining') : t('ai.refine')))
+                    : null,
                   isSample ? h('div', { className: 'dsx-examples' },
                     h('div', { className: 'dsx-section-title' }, h('span', null, t('brief.examplesHeading'))),
                     examples.map((key) => h('button', {
                       key: key,
                       type: 'button',
                       className: 'dsx-example',
-                      onClick: () => { patch({ draftBrief: t(key) }); generateFrom(t(key)); },
+                      onClick: () => {
+                        patch({ draftBrief: t(key) });
+                        if (aiInfo.available) generateWithAi(t(key));
+                        else generateFrom(t(key));
+                      },
                     }, t(key)))) : null),
 
                 h('section', { className: 'dsx-section' },
@@ -3090,7 +3301,7 @@ function createDesignEngine() {
                       h('div', { className: 'dsx-artboard-label' },
                         h('span', { className: 'dsx-artboard-name' }, artifact.title),
                         isSample ? h('span', { className: 'dsx-badge' }, t('canvas.sampleBadge')) : null,
-                        artifact.imported ? h('span', { className: 'dsx-badge' }, t('canvas.importedBadge')) : null,
+                        artifact.imported ? h('span', { className: 'dsx-badge' }, state.artifactSource === 'ai' ? t('canvas.aiBadge') : t('canvas.importedBadge')) : null,
                         h('span', { className: 'dsx-artboard-meta' }, t(device.labelKey) + ' ' + device.width)),
                       h('div', { className: 'dsx-artboard', style: { width: frameWidth + 'px', height: frameHeight + 'px' } },
                         h('div', { style: { width: device.width + 'px', height: device.height + 'px', transform: 'scale(' + state.zoom + ')', transformOrigin: 'top left' } },
@@ -3503,6 +3714,11 @@ function createDesignEngine() {
       '.dsx-project-input{width:100%;height:26px;}',
       '.dsx-project-select{width:100%;height:26px;}',
       '.dsx-project-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}',
+      '.dsx-ai-status{font-size:10.5px;color:var(--dsw-alias-label-secondary);margin:-2px 0 2px;}',
+      '.dsx-ai-error{font-size:11px;color:var(--dsw-alias-label-danger,#f87171);line-height:1.45;}',
+      '.dsx-ai-refine{display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--dsw-alias-border-l1);padding-top:8px;margin-top:2px;}',
+      '.dsx-btn-block{width:100%;justify-content:center;}',
+      '.dsx-primary:disabled{opacity:.65;cursor:progress;}',
       '.dsx-published{display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--dsw-alias-border-l1);padding-top:8px;}',
       '.dsx-published-head{display:flex;align-items:center;justify-content:space-between;gap:8px;}',
       '.dsx-published-title{font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--dsw-alias-label-secondary);font-weight:600;}',

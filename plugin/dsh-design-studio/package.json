@@ -1,6 +1,6 @@
 {
   "name": "@local/dsh-design-studio",
-  "version": "1.4.1",
+  "version": "1.5.0",
   "private": true,
   "type": "module",
   "description": "Design Studio: a left-sidebar design canvas for DeepSeek Harness plus headless-Chrome screenshot/audit tools for visual verification.",

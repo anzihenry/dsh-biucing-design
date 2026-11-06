@@ -4,6 +4,7 @@
 // headless Chrome, renders inline HTML through CDP, captures a PNG, and checks
 // its dimensions. It is skipped (not failed) when no Chrome is installed.
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { Readable } from 'node:stream'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -11,6 +12,15 @@ import assert from 'node:assert/strict'
 import { AUDIT_EXPRESSION } from '../lib/audit.js'
 import { findChromePath, resolveSandboxAttempts } from '../lib/chrome.js'
 import { isCdpAvailable, pngSize } from '../lib/cdp.js'
+import {
+  buildSystemPrompt,
+  buildUserPrompt,
+  createGenerationHandler,
+  generateDesign,
+  parseDesignResponse,
+  sanitizeDesignHtml,
+  sanitizeDesignTokens,
+} from '../lib/generate.js'
 import {
   auditArtboard,
   createProjectsResource,
@@ -163,6 +173,111 @@ await check('the screenshot tool refuses files outside the session working direc
     await rm(work, { recursive: true, force: true })
     await rm(outside, { recursive: true, force: true })
   }
+})
+
+await check('design response parsing tolerates JSON fences and sanitizes active content', () => {
+  const parsed = parseDesignResponse('Here you go:\n```json\n' + JSON.stringify({
+    title: 'AI dashboard',
+    html: '<!doctype html><html><body onload="steal()"><script>alert(1)</script><h1>Hello</h1></body></html>',
+    tokens: { accent: '#ff0000', radius: 10, extra: 'ignored' },
+  }) + '\n```')
+  assert.equal(parsed.title, 'AI dashboard')
+  const html = sanitizeDesignHtml(parsed.html)
+  assert.ok(html.startsWith('<!doctype html>'))
+  assert.ok(!/script/i.test(html))
+  assert.ok(!/onload/i.test(html))
+  const tokens = sanitizeDesignTokens(parsed.tokens)
+  assert.equal(tokens.accent, '#ff0000')
+  assert.equal(tokens.extra, undefined)
+  assert.ok(parseDesignResponse('<!doctype html><html><body>raw</body></html>').html.includes('raw'))
+  const tagged = parseDesignResponse('<design-meta>{"title":"Tagged design","tokens":{"accent":"#123456"}}</design-meta>\n<design-html>\n<!doctype html><html><body><h1>Tagged</h1></body></html>\n</design-html>')
+  assert.equal(tagged.title, 'Tagged design')
+  assert.ok(tagged.html.includes('<h1>Tagged</h1>'))
+  assert.equal(tagged.tokens.accent, '#123456')
+  assert.throws(() => parseDesignResponse('no design here'), /did not return a design/)
+  assert.ok(buildSystemPrompt().includes('JSON'))
+  assert.ok(buildUserPrompt({ brief: 'dashboard brief', tokens: { accent: '#000' } }).includes('dashboard brief'))
+})
+
+function mockRequest(method, headers, body) {
+  const req = new Readable({ read() {} })
+  req.method = method
+  req.headers = Object.assign({ host: '127.0.0.1:1', 'sec-fetch-site': 'same-origin' }, headers || {})
+  process.nextTick(() => {
+    if (body !== undefined) req.push(body)
+    req.push(null)
+  })
+  return req
+}
+
+function mockResponse() {
+  return {
+    statusCode: 0,
+    headers: {},
+    chunks: [],
+    headersSent: false,
+    writeHead(status, headers) {
+      this.statusCode = status
+      this.headers = headers || {}
+      this.headersSent = true
+    },
+    end(chunk) {
+      if (chunk) this.chunks.push(Buffer.from(chunk))
+      this.finished = true
+    },
+    body() {
+      return Buffer.concat(this.chunks).toString('utf8')
+    },
+  }
+}
+
+await check('the generation route calls the model and returns a sanitized design', async () => {
+  const design = {
+    title: 'Generated dashboard',
+    html: '<!doctype html><html><body><script>bad()</script><h1>Revenue</h1></body></html>',
+    tokens: { accent: '#e11d48', radius: 12 },
+  }
+  const llm = {
+    async resolveCallConfig() { return { maxTokens: 16000 } },
+    async *stream() {
+      yield { type: 'text-delta', text: '```json\n' + JSON.stringify(design) + '\n```' }
+      yield { type: 'finish', reason: { kind: 'stop' } }
+      yield { type: 'usage', usage: { inputTokens: 10, outputTokens: 20 } }
+    },
+  }
+  const ctx = {
+    get(name) {
+      if (name === 'llm') return llm
+      if (name === 'agentDefaultModel') return { currentSelection: () => ({ provider: 'mock', model: 'mock-model' }) }
+      return undefined
+    },
+  }
+  const handler = createGenerationHandler(ctx)
+  const getRes = mockResponse()
+  await handler(mockRequest('GET', {}), getRes)
+  const info = JSON.parse(getRes.body())
+  assert.equal(info.available, true)
+  assert.equal(info.provider, 'mock')
+  const res = mockResponse()
+  await handler(mockRequest('POST', { 'content-type': 'application/json' }, JSON.stringify({ brief: 'a revenue dashboard' })), res)
+  const payload = JSON.parse(res.body())
+  assert.equal(res.statusCode, 200)
+  assert.equal(payload.ok, true)
+  assert.equal(payload.title, 'Generated dashboard')
+  assert.equal(payload.provider, 'mock')
+  assert.ok(payload.html.startsWith('<!doctype html>'))
+  assert.ok(!/script/i.test(payload.html))
+  assert.equal(payload.tokens.accent, '#e11d48')
+  assert.equal(payload.usage.outputTokens, 20)
+  const crossRes = mockResponse()
+  await handler(mockRequest('POST', { origin: 'https://evil.example' }, JSON.stringify({ brief: 'x' })), crossRes)
+  assert.equal(crossRes.statusCode, 403)
+  const emptyRes = mockResponse()
+  await handler(mockRequest('POST', {}, JSON.stringify({})), emptyRes)
+  assert.equal(emptyRes.statusCode, 400)
+  const badRes = mockResponse()
+  await handler(mockRequest('POST', {}, 'not json'), badRes)
+  assert.equal(badRes.statusCode, 400)
 })
 
 await check('the project bridge round-trips through the profile library and the read-only route', async () => {

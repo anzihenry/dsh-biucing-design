@@ -6,6 +6,7 @@
  * to screenshot and audit the panel (through the authenticated Web GUI and the
  * `?panel=design-studio` deep link) or any generated design document.
  */
+import { createGenerationHandler } from './lib/generate.js'
 import { createProjectsResource, designProjectsTool, designScreenshotHtmlTool, designVerifyUiTool } from './lib/tools.js'
 
 export const inject = ['tools']
@@ -22,6 +23,11 @@ export function apply(ctx) {
       kind: 'prefix',
       path: '/design-studio/projects',
       resource: createProjectsResource(),
+    }))
+    scope.effect(() => scope.webServer.register({
+      kind: 'exact',
+      path: '/design-studio/generate',
+      handler: createGenerationHandler(ctx),
     }))
   })
 }
