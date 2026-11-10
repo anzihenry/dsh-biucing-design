@@ -2,4 +2,4 @@
 # feature lives in the Client half (left-sidebar panel entry + central panel).
 - insert:
     - id: design-studio
-      name: '@local/dsh-design-studio'
+      name: 'dsh-biucing-design'

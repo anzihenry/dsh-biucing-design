@@ -80,7 +80,7 @@ Host 半边注册两个 tool，使用**独立的临时 headless Chrome**（不�
 ## 结构
 
 ```
-dsh-design-studio/
+dsh-biucing-design/
 ├── package.json          # bundle 清单 + dsh.client
 ├── cordis.patch.yml      # 插入 design-studio 行
 ├── index.js              # Host 半边：注册浏览器核验 tool
@@ -115,7 +115,7 @@ npm test             # 引擎 + 构建产物 + Host 工具自测（最后一项�
 
 ## 安装（本机 profile）
 
-在 DSH 会话中通过 Plugin Manager 以本地目录安装本包（`plugin/dsh-design-studio`），
+在 DSH 会话中通过 Plugin Manager 以本地目录安装本包（`plugin/dsh-biucing-design`）；包名 `dsh-biucing-design` 与 GitHub 仓库一致，侧边栏入口名仍是 **Design Studio**。
 或将其加入 profile 的 bundle 列表。安装后左侧栏出现设计工作室图标，点击切换到设计画布。
 
 升级已安装的 Host 侧代码（`index.js` / `lib/`）通常需要重启 DSH 才能加载新的模块 generation；

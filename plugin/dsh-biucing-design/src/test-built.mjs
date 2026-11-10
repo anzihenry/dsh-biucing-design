@@ -5,12 +5,14 @@
 // engine is not verbatim, or when the registered module / panel render path
 // throws. It runs headless with no dependencies: the React module is a tiny
 // stand-in that records the element tree instead of mounting it.
+import { readFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import assert from 'node:assert/strict'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+const packageJson = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 const marker = '/* @engine */'
 const [shell, engineSource, built] = await Promise.all([
   readFile(join(root, 'src', 'client.js'), 'utf8'),
@@ -73,7 +75,7 @@ new Function('window', built)(fakeWindow)
 
 check('the module registers under the package name', () => {
   assert.ok(moduleRecord, 'module loader was not called')
-  assert.equal(moduleRecord.id, '@local/dsh-design-studio')
+  assert.equal(moduleRecord.id, packageJson.name)
   assert.equal(typeof moduleRecord.factory, 'function')
 })
 

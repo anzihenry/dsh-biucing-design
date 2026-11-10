@@ -15,13 +15,13 @@ cd dsh-biucing-design
 .
 ├── README.md
 ├── plugin/
-│   └── dsh-design-studio/   # 「设计工作室」DSH 插件（左侧栏入口 + 设计画布）
+│   └── dsh-biucing-design/  # 「设计工作室」DSH 插件（左侧栏入口 + 设计画布）
 └── .gitignore
 ```
 
 ## 设计工作室插件
 
-`plugin/dsh-design-studio` 是一个 DSH bundle：在左侧栏加入「设计工作室」入口，
+`plugin/dsh-biucing-design` 是一个 DSH bundle（包名 `dsh-biucing-design`，与仓库同名；侧边栏入口仍显示 Design Studio）：在左侧栏加入「设计工作室」入口，
 中间工作区打开一个类似 Claude Design 的设计画布。
 
 - 一句话需求 → 自包含 HTML 设计稿（落地页 / 仪表盘 / 移动 App / 定价页 / 海报 / 单页文档 / 表单），中英文需求自动匹配模板与风格；
@@ -39,7 +39,7 @@ cd dsh-biucing-design
   截图并审计设计工作室面板或任意自包含设计稿，支持交互步骤、默认裁剪到面板、返回 PASS/FAIL 问题清单，
   并审计沙箱 artboard 里的设计稿；真实核验记录见 [verify/visual-verification.md](verify/visual-verification.md)。
 
-安装与开发说明见 [plugin/dsh-design-studio/README.md](plugin/dsh-design-studio/README.md)。
+安装与开发说明见 [plugin/dsh-biucing-design/README.md](plugin/dsh-biucing-design/README.md)。
 
 ## 许可
 

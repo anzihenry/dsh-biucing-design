@@ -1,6 +1,6 @@
 /**
  * Zero-dependency self-test for the DSH Design Studio synthesis engine.
- * Run from plugin/dsh-design-studio:  node src/test-engine.mjs
+ * Run from plugin/dsh-biucing-design:  node src/test-engine.mjs
  */
 
 import assert from 'node:assert/strict';

@@ -10,7 +10,7 @@
 | `design_verify_ui` | 用 `connection.authenticatedUrl(webApp.getAdvertisedUrl())` 获取带鉴权的 Web GUI 地址 → 打开 `?panel=design-studio` 深链（token 重定向丢失 query 时二次导航）→ 关闭首屏 Preview Notice → 等待面板 → 截图 + 页面内审计 | PNG 路径（可交给 `read_image`）+ 布局/色值/对比度/控制台错误报告 |
 | `design_screenshot_html` | 把内联 HTML 或本地 `.html` 在 headless Chrome 中按指定 viewport 渲染（支持 full page） | PNG 路径（可交给 `read_image`） |
 
-实现位于 `plugin/dsh-design-studio/lib/`（`chrome.js` 浏览器发现/启动/清理、`cdp.js` 精简 CDP、`audit.js` 页面内审计表达式、`tools.js` 两个 tool）；
+实现位于 `plugin/dsh-biucing-design/lib/`（`chrome.js` 浏览器发现/启动/清理、`cdp.js` 精简 CDP、`audit.js` 页面内审计表达式、`tools.js` 两个 tool）；
 浏览器使用独立临时 profile，截图默认写入工作区 `.design-studio/screenshots/`，不会触碰用户浏览器 cookie。
 
 ## 2. 真实截图
@@ -214,7 +214,7 @@ design_screenshot_html({ file_path: ".design-studio/probe/editorial-landing.html
 自动化测试（不依赖 DSH 运行）：
 
 ```bash
-cd plugin/dsh-design-studio
+cd plugin/dsh-biucing-design
 node src/test-host.mjs     # 9 checks，含真实 headless Chrome 截图 + PNG 尺寸校验
 node src/test-built.mjs    # 15 checks，含三列布局回归
 node src/test-engine.mjs   # 14 checks
